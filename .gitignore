@@ -1,0 +1,29 @@
+# ── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Environment & secrets ───────────────────────────────────────────────────
+# Never commit real .env files. Admin passwords / SESSION_SECRET / Apirone keys
+# are set via environment variables (Render dashboard / shell), not files.
+.env
+.env.*
+!.env.example
+
+# ── Runtime data (databases, logs) ──────────────────────────────────────────
+# data/ holds the SQLite database. On Render point DB_FILE at a PERSISTENT DISK
+# mount (paid instance) — the default location is ephemeral there.
+data/
+*.log
+logs/
+npm-debug.log*
+
+# ── Builds / packaged artifacts ─────────────────────────────────────────────
+client/dist/
+dist/
+*.zip
+
+# ── Editor / OS / local tooling ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/

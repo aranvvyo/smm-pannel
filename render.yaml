@@ -1,0 +1,49 @@
+# ────────────────────────────────────────────────────────────────────────────
+# Render Blueprint — InstaSMM (full-stack Node + SQLite + built React SPA)
+#
+# Free-tier compatible. To persist the SQLite database across deploys Render
+# requires a PAID instance + Persistent Disk (free instances have an ephemeral
+# filesystem and WILL lose data on redeploy). When you upgrade, remove the
+# `# ` from the disk block below and set DB_FILE=/var/data/instasmm.db.
+# ────────────────────────────────────────────────────────────────────────────
+services:
+  - type: web
+    name: instasmm
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/landing/stats
+    envVars:
+      - key: NODE_VERSION
+        value: "22.14.0"
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: warn
+      # Public URL for QR codes + real Apirone webhook callbacks (never localhost).
+      - key: PUBLIC_BASE_URL
+        value: https://instasmm.store
+      - key: APIRONE_API_URL
+        value: https://apirone.com
+      # Secrets — never come from the repo (sync:false prompts; generateValue
+      # lets Render create a strong random value itself).
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL_1
+        sync: false
+      - key: ADMIN_PASSWORD_1
+        sync: false
+      - key: ADMIN_EMAIL_2
+        sync: false
+      - key: ADMIN_PASSWORD_2
+        sync: false
+    # Optional — persistent SQLite storage on a PAID instance:
+    # disk:
+    #   name: sqlite-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # envVars (add when the disk is enabled):
+    #   - key: DB_FILE
+    #     value: /var/data/instasmm.db

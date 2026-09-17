@@ -1,0 +1,32 @@
+{
+  "name": "instasmm",
+  "version": "1.0.0",
+  "description": "InstaSMM - Fully automated SMM Panel with dual Client & Admin UI, multi-provider routing, crypto (Apirone) deposits, coupons & reseller management.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "node server/index.js",
+    "build": "cd client && vite build",
+    "start": "node server/index.js",
+    "package": "node scripts/package.js",
+    "test": "node scripts/test-money.mjs",
+    "seed": "node server/db.js"
+  },
+  "engines": {
+    "node": ">=22.5.0 <25"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "adm-zip": "^0.5.16",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "vite": "^5.4.11"
+  }
+}

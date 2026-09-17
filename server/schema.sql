@@ -1,0 +1,261 @@
+-- ===========================================================================
+-- InstaSMM — SQLite schema
+-- Money is stored as INTEGER whole subunits to avoid float drift:
+--   INR amount  => paise (₹1.00 = 100)
+--   USD amount  => cents ($1.00 = 100)
+-- Timestamps    => UNIX epoch milliseconds (UTC). IST only at display time.
+-- ===========================================================================
+
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+
+CREATE TABLE IF NOT EXISTS users (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  email          TEXT UNIQUE NOT NULL,
+  password_hash  TEXT NOT NULL,
+  role           TEXT NOT NULL DEFAULT 'client',          -- 'admin' | 'client'
+  name           TEXT,
+  wallet_balance INTEGER NOT NULL DEFAULT 0,              -- INR in paise
+  total_spent_inr INTEGER NOT NULL DEFAULT 0,             -- INR in paise
+  status         TEXT NOT NULL DEFAULT 'active',          -- 'active' | 'banned'
+  no_profit      INTEGER NOT NULL DEFAULT 0,              -- 1 = owner's favourite (0% markup)
+  created_at     INTEGER NOT NULL,
+  last_login_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ip         TEXT,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS categories (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  name    TEXT NOT NULL,
+  slug    TEXT UNIQUE NOT NULL,
+  icon    TEXT,
+  sort    INTEGER NOT NULL DEFAULT 0,
+  active  INTEGER NOT NULL DEFAULT 1
+);
+
+-- Provider row. api_url / api_key are SERVER-SIDE ONLY and are never
+-- serialized into any response.
+CREATE TABLE IF NOT EXISTS providers (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT NOT NULL,
+  adapter      TEXT NOT NULL DEFAULT 'smmpost', -- 'smmpost' (production) | 'demo' (test-only)
+  api_url      TEXT,
+  api_key      TEXT,
+  active       INTEGER NOT NULL DEFAULT 1,
+  balance      REAL,                            -- last known provider balance
+  currency     TEXT NOT NULL DEFAULT 'USD',     -- provider billing currency
+  markup_type  TEXT NOT NULL DEFAULT 'percent', -- 'percent' | 'fixed' (customer pricing)
+  markup_value REAL NOT NULL DEFAULT 25,
+  last_sync_at INTEGER,                         -- last successful service sync
+  last_success_at INTEGER,                      -- last successful API call (test/status)
+  last_error   TEXT,                            -- last API error message (never contains keys)
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS services (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  category_id        INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  provider_id        INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  provider_service_id TEXT,
+  name               TEXT NOT NULL,
+  description        TEXT,
+  speed_hint         TEXT,            -- "0-15 min" etc (admin/provider supplied)
+  type               TEXT,            -- provider service type (Default/Comments/...)
+  min                INTEGER NOT NULL DEFAULT 1,
+  max                INTEGER NOT NULL DEFAULT 999999,
+  provider_rate      REAL NOT NULL,   -- base cost per 1000 (server-side only
+                                      -- for normal users; the selling price driver)
+  admin_rate         REAL NOT NULL,   -- selling rate per 1000
+  markup_type        TEXT NOT NULL DEFAULT 'percent',  -- 'percent' | 'fixed'
+  markup_value       REAL NOT NULL DEFAULT 0,
+  refill             INTEGER NOT NULL DEFAULT 0,      -- provider supports refill
+  cancel             INTEGER NOT NULL DEFAULT 0,      -- provider supports cancel
+  status             INTEGER NOT NULL DEFAULT 1,      -- 1 active, 0 disabled
+  created_at         INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_services_cat ON services(category_id);
+CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider_id);
+-- One row per (provider, upstream service) so sync upserts are idempotent.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_services_prov_svc ON services(provider_id, provider_service_id);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_ref        TEXT UNIQUE NOT NULL,   -- public "Order ID" shown to users
+  user_id          INTEGER NOT NULL REFERENCES users(id),
+  service_id       INTEGER NOT NULL REFERENCES services(id),
+  provider_id      INTEGER REFERENCES providers(id),  -- NULL after provider deletion (history preserved)
+  provider_order_id TEXT,
+  link             TEXT NOT NULL,
+  quantity         INTEGER NOT NULL,
+  price_inr        INTEGER NOT NULL,       -- sale price, paise
+  base_cost_inr    INTEGER NOT NULL,       -- provider cost, paise (server-side only)
+  coupon_id        INTEGER REFERENCES coupons(id),
+  discount_inr     INTEGER NOT NULL DEFAULT 0,
+  status           TEXT NOT NULL DEFAULT 'PENDING',
+  start_count      INTEGER NOT NULL DEFAULT 0,
+  remains          INTEGER NOT NULL DEFAULT 0,
+  provider_charge  REAL,                   -- provider-charged amount (status sync)
+  provider_currency TEXT,                  -- provider billing currency for charge
+  provider_meta    TEXT,                   -- JSON extras from provider (supplier id, etc)
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_provider ON orders(provider_id, status);
+-- Idempotency guard for placeOrder: a provider order id is accepted exactly once.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_prov_order ON orders(provider_id, provider_order_id) WHERE provider_order_id IS NOT NULL;
+
+-- Wallet ledger (single source of truth for balance changes)
+CREATE TABLE IF NOT EXISTS transactions (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id),
+  type          TEXT NOT NULL,            -- deposit|order|refund|admin_credit|admin_debit
+  amount_inr    INTEGER NOT NULL,         -- signed, paise
+  balance_after INTEGER NOT NULL,
+  ref_id        INTEGER,                  -- related order/deposit id
+  meta_json     TEXT,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS deposits (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        INTEGER NOT NULL REFERENCES users(id),
+  invoice_id     TEXT,                    -- Apirone invoice id (or sim id)
+  currency       TEXT NOT NULL,           -- LTC | BEP20_USDT | ERC20_USDT
+  amount_usd     INTEGER NOT NULL,        -- cents
+  amount_inr     INTEGER NOT NULL,        -- paise (credited amount)
+  address        TEXT,
+  status         TEXT NOT NULL DEFAULT 'pending', -- pending|in_progress|confirmed|failed|expired|rejected
+  is_simulated   INTEGER NOT NULL DEFAULT 0,
+  paid_usd       INTEGER NOT NULL DEFAULT 0,  -- cumulative USD cents credited
+  received_minor REAL,                       -- cumulative crypto minor units verified received
+  tx_hash        TEXT,                       -- last verified on-chain txid (real only, never fabricated)
+  provider_event TEXT,                    -- last raw webhook event that touched it
+  created_at     INTEGER NOT NULL,
+  expires_at     INTEGER NOT NULL,
+  paid_at        INTEGER,
+  confirmed_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_deposits_user ON deposits(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_deposits_invoice ON deposits(invoice_id);
+
+CREATE TABLE IF NOT EXISTS coupons (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  code          TEXT UNIQUE NOT NULL,
+  type          TEXT NOT NULL,            -- 'percent' | 'fixed_inr'
+  value         REAL NOT NULL,            -- percent (0-100) or INR paise for fixed
+  min_order_inr INTEGER NOT NULL DEFAULT 0, -- min order subtotal (paise) to apply
+  starts_at     INTEGER,
+  expires_at    INTEGER,
+  active        INTEGER NOT NULL DEFAULT 1,
+  usage_limit   INTEGER,                  -- NULL = unlimited
+  used_count    INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS coupon_uses (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  coupon_id      INTEGER NOT NULL REFERENCES coupons(id),
+  user_id        INTEGER NOT NULL REFERENCES users(id),
+  order_id       INTEGER,
+  discount_inr   INTEGER NOT NULL,
+  created_at     INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,           -- target user (or 0 = broadcast)
+  type       TEXT NOT NULL,              -- deposit|order|admin|account|general
+  title      TEXT NOT NULL,
+  body       TEXT,
+  read_at    INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read_at);
+
+CREATE TABLE IF NOT EXISTS tickets (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL REFERENCES users(id),
+  subject    TEXT NOT NULL,
+  order_id   INTEGER,                    -- optional attached order
+  priority   TEXT NOT NULL DEFAULT 'medium',
+  status     TEXT NOT NULL DEFAULT 'open', -- open|pending|closed
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ticket_replies (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id   INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  user_id     INTEGER NOT NULL,
+  sender_role TEXT NOT NULL,             -- 'client' | 'admin'
+  body        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS security_logs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER,
+  email      TEXT,
+  action     TEXT NOT NULL,              -- login|failed_login|logout|ban|unban|admin_credit|...
+  ip         TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sec_logs ON security_logs(created_at);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Admin crypto withdrawal / sweep history. Real provider transfers only — the
+-- transfer reference (or an explicit failure) is always recorded, and a tx hash
+-- is NEVER fabricated. Idempotency: one key per submission attempt, and the
+-- server refuses a fresh duplicate within a short window before API calls.
+CREATE TABLE IF NOT EXISTS withdrawals (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_id         INTEGER NOT NULL REFERENCES users(id),
+  currency         TEXT NOT NULL,            -- LTC | TRC20_USDT | BEP20_USDT | ERC20_USDT
+  currency_code    TEXT,                     -- ltc | usdt@trx | usdt@bnb | usdt@eth
+  address          TEXT NOT NULL,
+  mode             TEXT NOT NULL DEFAULT 'amount',  -- 'amount' | 'sweep'
+  amount_minor     REAL NOT NULL,            -- crypto minor units sent
+  amount_usd       INTEGER NOT NULL DEFAULT 0,      -- USD cents (value at send)
+  rate_inr         INTEGER,                  -- INR exchange rate at send
+  fee              TEXT NOT NULL DEFAULT 'normal',  -- 'normal' | 'priority' | 'custom' (Apirone transfer fee policy)
+  subtract_fee     INTEGER NOT NULL DEFAULT 1,
+  transfer_ref     TEXT,                     -- provider transfer/payment id (never a fake hash)
+  tx_hash          TEXT,                     -- real on-chain transaction hash from the gateway (when reported)
+  status           TEXT NOT NULL DEFAULT 'pending', -- pending|sent|failed
+  error            TEXT,
+  idempotency_key  TEXT UNIQUE,
+  created_at       INTEGER NOT NULL,
+  executed_at      INTEGER,
+  confirmed_at     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_withdrawals_admin ON withdrawals(admin_id, created_at);
+
+-- Owner-saved withdrawal addresses: one validated address per currency/network.
+-- Set exclusively through the admin-only endpoints; the withdrawal flow always
+-- reads from here and never asks for an address again (endpoint-only, so the
+-- volume of an address is never presented to a client).
+CREATE TABLE IF NOT EXISTS withdraw_addresses (
+  currency   TEXT PRIMARY KEY,               -- LTC | TRC20_USDT | BEP20_USDT | ERC20_USDT
+  address    TEXT NOT NULL,                  -- validated for that network
+  network    TEXT NOT NULL,                  -- 'Litecoin' | 'TRC20' | 'BEP20' | 'ERC20'
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);

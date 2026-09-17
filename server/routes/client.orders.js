@@ -1,0 +1,63 @@
+import { Router } from 'express';
+import { getDb } from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
+import { placeOrder, quoteOrder, userOrders, orderWithService, InsufficientBalanceError, ProviderError } from '../lib/orderRouter.js';
+import { ah, sendErr } from './_helpers.js';
+
+// POST /api/quote — preview cost + coupon effect (server-side math only).
+// Mounted separately at /api/quote.
+export const quoteRouter = Router();
+quoteRouter.post('/quote', requireAuth, (req, res) => {
+  const { serviceId, quantity, coupon_code } = req.body || {};
+  try {
+    const result = quoteOrder({ serviceId, quantity, couponCode: coupon_code, noProfit: req.user.no_profit === 1 });
+    return res.json(result);
+  } catch (e) {
+    return sendErr(res, 400, e.message, e.code);
+  }
+});
+
+const r = Router();
+
+// POST /api/orders — place an order. Provider-first: upstream failure means a
+// 502 with the REAL error and nothing was charged.
+r.post('/', requireAuth, ah(async (req, res) => {
+  const { serviceId, link, quantity, coupon_code, comments, runs, interval } = req.body || {};
+  try {
+    const order = await placeOrder({
+      user: req.user,
+      serviceId,
+      link,
+      quantity,
+      couponCode: coupon_code || null,
+      extras: { comments, runs, interval },
+    });
+    return res.status(201).json({ order });
+  } catch (e) {
+    if (e instanceof InsufficientBalanceError) {
+      return sendErr(res, 402, 'Insufficient balance. Deposit funds to continue.', 'INSUFFICIENT_BALANCE');
+    }
+    if (e instanceof ProviderError) {
+      // Task 8 (client privacy): the provider's own error text lives INSIDE the
+      // admin audit trail ({last_error}) — it must never be echoed to a client
+      // (it can name the supplier). Clients get a generic, truthful outcome.
+      return sendErr(res, 502, 'The order could not be placed right now — nothing was charged. Please try again in a moment or contact support.', 'PROVIDER_ERROR');
+    }
+    return sendErr(res, 400, e.message, e.code);
+  }
+}));
+
+// GET /api/orders — user's order history.
+r.get('/', requireAuth, (req, res) => {
+  return res.json({ orders: userOrders(getDb(), req.user.id) });
+});
+
+// GET /api/orders/:id
+r.get('/:id', requireAuth, (req, res) => {
+  const db = getDb();
+  const order = db.prepare('SELECT id, user_id FROM orders WHERE id=?').get(req.params.id);
+  if (!order || order.user_id !== req.user.id) return sendErr(res, 404, 'Order not found.');
+  return res.json({ order: orderWithService(db, order.id) });
+});
+
+export default r;
