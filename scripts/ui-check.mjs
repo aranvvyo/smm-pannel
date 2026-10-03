@@ -48,5 +48,12 @@ const fake = /200\s*k|9\.9\/10|satisfied clients|rated 9/i;
 check('landing has no fabricated claim text', !fake.test(landing));
 check('landing CTA for clients goes to dashboard', /cta = user \? \(user\.role === 'admin' \? '\/admin' : '\/dashboard'\) : '\/signup'/.test(landing));
 
+// --- New Order: compact category dropdown (not a long chip list)
+const orderPage = read('client/src/pages/client/OrderPage.jsx');
+check('new order uses a compact category dropdown (select), not a chip list',
+  orderPage.includes('id="cat-select"') && !orderPage.includes('cat-chips'));
+check('category dropdown keeps the "All categories" option',
+  /<option value="">All categories/.test(orderPage));
+
 console.log(`\n${ok} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

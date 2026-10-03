@@ -55,6 +55,16 @@ export default function OrderPage() {
     setQuote(null);
   };
 
+  // Category change: refresh the service list immediately and clear any
+  // selected service — it may not belong to the new category, so the
+  // category and service selections always stay in sync.
+  const changeCategory = (id) => {
+    setCatId(id);
+    setServiceId('');
+    setSvc(null);
+    setQuote(null);
+  };
+
   const runQuote = async () => {
     if (!serviceId || !qty) return;
     setErr(''); setQuoteBusy(true);
@@ -157,21 +167,26 @@ export default function OrderPage() {
       )}
 
       <form onSubmit={place} className="card" style={{ maxWidth: 700 }}>
-        {/* Category picker */}
-        <label className="label">Category</label>
+        {/* Category picker — one compact dropdown. A native select gives
+            mobile users the OS picker (usable on Android + desktop),
+            reveals options only when opened, and scrolls natively when
+            there are many categories — the page never grows with the
+            catalog. */}
+        <label className="label" htmlFor="cat-select">Category</label>
         {cats.length > 0 ? (
-          <div className="cat-chips">
-            <button type="button" className={`chip ${!catId ? 'active' : ''}`} onClick={() => { setCatId(''); setServiceId(''); setSvc(null); setQuote(null); }}>
-              All
-            </button>
-            {cats.map((c) => (
-              <button key={c.id} type="button"
-                className={`chip ${catId === c.id ? 'active' : ''}`}
-                onClick={() => { setCatId(c.id); setServiceId(''); setSvc(null); setQuote(null); }}>
-                <Icon name={VALID_ICONS.has(c.icon) ? c.icon : 'sparkles'} size={14} style={{ verticalAlign: '-2px' }} />
-                {c.name}
-              </button>
-            ))}
+          <div className="select-shell">
+            <span className="select-shell-icon" aria-hidden="true">
+              <Icon name={showCategory && VALID_ICONS.has(showCategory.icon) ? showCategory.icon : 'layers'} size={16} />
+            </span>
+            <select id="cat-select" className="select-shell-input" value={catId} onChange={(e) => changeCategory(e.target.value)}>
+              <option value="">All categories · {allServices.length.toLocaleString()} services</option>
+              {cats.map((c) => (
+                <option key={c.id} value={c.id}>{c.name} · {c.services.length.toLocaleString()} services</option>
+              ))}
+            </select>
+            <span className="select-shell-caret" aria-hidden="true">
+              <Icon name="chevronDown" size={16} />
+            </span>
           </div>
         ) : providerConfigured ? (
           <p className="faint" style={{ fontSize: '0.9rem' }}>Loading categories…</p>

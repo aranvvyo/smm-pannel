@@ -489,6 +489,55 @@ tbody tr:hover { background: rgba(99,102,241,0.06); }
 /* Order page */
 .cat-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .cat-chips .chip { display: inline-flex; align-items: center; gap: 6px; }
+/* Compact category dropdown (New Order). One styled native select
+   replaces the old permanently-visible chip list: options appear only
+   when the control is opened and scroll inside the OS picker, so a
+   large catalog never lengthens the page. The shell carries the
+   border/background/focus ring; the native arrow is hidden and a
+   caret icon is shown instead (the OS picker still opens on tap). */
+.select-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 36px 0 12px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.select-shell:hover { border-color: var(--accent); }
+.select-shell:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.25);
+}
+.select-shell-icon { display: inline-flex; flex-shrink: 0; color: var(--faint); }
+.select-shell-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 1rem;
+  padding: 11px 0;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.select-shell-caret {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  pointer-events: none;
+  color: var(--muted);
+}
 .input-shell {
   display: flex; align-items: center; gap: 8px;
   background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px;
