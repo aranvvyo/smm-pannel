@@ -75,7 +75,8 @@ export default function AdminProviders() {
         <input className="input" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} required placeholder="Provider #1" />
 
         <label className="label">API URL <span className="faint">(smmpost)</span></label>
-        <input className="input" value={form.api_url || ''} onChange={(e) => setForm({ ...form, api_url: e.target.value })} placeholder="https://themainsmmprovider.com/api/v2" />
+        <input className="input" value={form.api_url || ''} onChange={(e) => setForm({ ...form, api_url: e.target.value })}
+          placeholder={isEdit ? 'https://… (leave blank to keep the stored endpoint)' : 'https://themainsmmprovider.com/api/v2'} />
 
         <label className="label">API key <span className="faint">(stored server-side, never shown again)</span></label>
         <input className="input" type="password" value={form.api_key || ''} onChange={(e) => setForm({ ...form, api_key: e.target.value })}

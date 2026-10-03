@@ -39,13 +39,16 @@ r.post('/', (req, res) => {
   const markupType = body.markup_type === 'fixed' ? 'fixed' : 'percent';
   const markupValue = Number(body.markup_value ?? (markupType === 'percent' ? 25 : 0));
   if (!Number.isFinite(markupValue) || markupValue < 0) return sendErr(res, 400, 'Invalid markup value.');
+  // Active unless explicitly paused (an explicitly-active provider must
+  // never be stored as paused — orders only route to active=1 rows).
+  const active = body.active === 0 ? 0 : 1;
   const now = Date.now();
   const info = getDb().prepare(
     `INSERT INTO providers (name, adapter, api_url, api_key, active, currency, markup_type, markup_value, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)`
   ).run(
     name, adapter, body.api_url || null, String(body.api_key),
-    body.active === 0 ? 0 : 1,
+    active,
     String(body.currency || 'USD'), markupType, markupValue, now, now
   );
   logSecurity(req.user.id, req.user.email, 'add_provider', 'admin');
@@ -53,13 +56,20 @@ r.post('/', (req, res) => {
 });
 
 // PATCH /api/admin/providers/:id — edit name/endpoint/markup/currency/active.
-// api_key cannot be read back; send blank to keep the stored key.
+// api_key/api_url cannot be read back; send blank to keep the stored
+// value (the admin form opens with empty secret/endpoint fields, so a
+// save without re-entering them must NEVER wipe the stored config).
 r.patch('/:id', (req, res) => {
   const db = getDb();
   const p = db.prepare('SELECT * FROM providers WHERE id=?').get(req.params.id);
   if (!p) return sendErr(res, 404, 'Provider not found.');
   const body = req.body || {};
-  const newKey = body.api_key ? String(body.api_key) : p.api_key;
+  const sentKey = String(body.api_key ?? '').trim();
+  const newKey = sentKey ? sentKey : p.api_key;
+  const sentUrl = body.api_url === undefined || body.api_url === null
+    ? null
+    : String(body.api_url).trim();
+  const newUrl = sentUrl ? sentUrl : p.api_url;
   const markupType = body.markup_type ? (body.markup_type === 'fixed' ? 'fixed' : 'percent') : p.markup_type;
   const markupValue = body.markup_value !== undefined ? Number(body.markup_value) : p.markup_value;
   if (!Number.isFinite(markupValue) || markupValue < 0) return sendErr(res, 400, 'Invalid markup value.');
@@ -68,7 +78,7 @@ r.patch('/:id', (req, res) => {
   ).run(
     String(body.name ?? p.name),
     AVAILABLE_ADAPTERS.includes(body.adapter) ? body.adapter : p.adapter,
-    body.api_url === undefined ? p.api_url : body.api_url,
+    newUrl,
     newKey,
     body.active === undefined ? p.active : Number(body.active),
     body.currency ? String(body.currency) : p.currency,
@@ -124,7 +134,16 @@ r.post('/:id/sync-services', ah(async (req, res) => {
   const db = getDb();
   const p = db.prepare('SELECT * FROM providers WHERE id=?').get(req.params.id);
   if (!p) return sendErr(res, 404, 'Provider not found.');
-  const adapter = createAdapter(p.adapter, p);
+  // The adapter factory itself can fail (missing endpoint/key) — surface
+  // that as a truthful 502, never an unhandled 500.
+  let adapter;
+  try {
+    adapter = createAdapter(p.adapter, p);
+  } catch (e) {
+    db.prepare('UPDATE providers SET last_error=?, updated_at=? WHERE id=?')
+      .run(String('Sync failed: ' + e.message).slice(0, 300), Date.now(), p.id);
+    return sendErr(res, 502, `Sync failed: ${e.message}`);
+  }
   let list;
   try {
     list = await adapter.listServices();
@@ -142,7 +161,10 @@ r.post('/:id/sync-services', ah(async (req, res) => {
   db.prepare('UPDATE providers SET last_sync_at=?, last_success_at=?, last_error=NULL, updated_at=? WHERE id=?')
     .run(Date.now(), Date.now(), Date.now(), p.id);
   logSecurity(req.user.id, req.user.email, 'sync_services', 'admin');
-  return res.json({ pulled: list.length, added: out.added, updated: out.updated, message: `Synced ${list.length} services from ${p.name}.` });
+  return res.json({
+    pulled: list.length, added: out.added, updated: out.updated, skipped: out.skipped || 0,
+    message: `Synced ${list.length} services from ${p.name}.`,
+  });
 }));
 
 export default r;

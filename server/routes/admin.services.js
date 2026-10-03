@@ -13,7 +13,7 @@ function svcCell(s) {
   return {
     id: s.id, category_id: s.category_id, provider_id: s.provider_id,
     provider_service_id: s.provider_service_id, name: s.name, description: s.description,
-    speed_hint: s.speed_hint, type: s.type, min: s.min, max: s.max,
+    speed_hint: s.speed_hint, type: s.type, min: s.min, max: s.max, quality: s.quality,
     provider_rate: s.provider_rate, admin_rate: s.admin_rate,
     markup_type: s.markup_type, markup_value: s.markup_value,
     refill: Number(s.refill), cancel: Number(s.cancel),
@@ -52,15 +52,16 @@ r.post('/', (req, res) => {
   const markupType = body.markup_type === 'fixed' ? 'fixed' : 'percent';
   const markupValue = Number(body.markup_value || (markupType === 'percent' ? 25 : 0));
   const adminRate = applyMarkup(providerRate, markupType, markupValue);
+  const quality = String(body.quality || '').trim() || null;
   const now = Date.now();
   const info = db.prepare(
     `INSERT INTO services (category_id, provider_id, provider_service_id, name, description, speed_hint,
-       type, min, max, provider_rate, admin_rate, markup_type, markup_value, refill, cancel, status, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       type, min, max, provider_rate, admin_rate, quality, markup_type, markup_value, refill, cancel, status, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     categoryId, providerId, body.provider_service_id || null, name, body.description || null,
     body.speed_hint || null, body.type || 'Default', Number(body.min || 1), Number(body.max || 999999),
-    providerRate, adminRate, markupType, markupValue,
+    providerRate, adminRate, quality, markupType, markupValue,
     Number(body.refill) ? 1 : 0, Number(body.cancel) ? 1 : 0, body.status === 0 ? 0 : 1, now
   );
   return res.status(201).json({ id: Number(info.lastInsertRowid), admin_rate: adminRate });
@@ -79,15 +80,16 @@ r.patch('/:id', (req, res) => {
   const markupValue = Number(body.markup_value ?? s.markup_value);
   const overrideRate = Number.isFinite(Number(body.admin_rate)) ? Number(body.admin_rate) : null;
   const adminRate = overrideRate != null ? overrideRate : applyMarkup(providerRate, markupType, markupValue);
+  const quality = body.quality === undefined ? s.quality : (String(body.quality).trim() || null);
 
   db.prepare(
     `UPDATE services SET name=?, description=?, speed_hint=?, type=?, min=?, max=?,
-      provider_rate=?, admin_rate=?, markup_type=?, markup_value=?, refill=?, cancel=?, status=?,
+      provider_rate=?, admin_rate=?, quality=?, markup_type=?, markup_value=?, refill=?, cancel=?, status=?,
       category_id=?, provider_id=?, provider_service_id=? WHERE id=?`
   ).run(
     String(body.name ?? s.name), body.description ?? s.description, body.speed_hint ?? s.speed_hint,
     body.type ?? s.type, Number(body.min ?? s.min), Number(body.max ?? s.max),
-    providerRate, adminRate, markupType, markupValue,
+    providerRate, adminRate, quality, markupType, markupValue,
     body.refill === undefined ? s.refill : (Number(body.refill) ? 1 : 0),
     body.cancel === undefined ? s.cancel : (Number(body.cancel) ? 1 : 0),
     body.status === undefined ? s.status : Number(body.status),

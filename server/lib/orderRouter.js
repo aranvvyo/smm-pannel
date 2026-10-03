@@ -92,12 +92,25 @@ export async function placeOrder({ user, serviceId, link, quantity, couponCode =
   const now = Date.now();
   const orderRef = newId('ORD-');
   let orderId;
+  let newBalance = user.wallet_balance - final;
 
   db.exec('BEGIN');
   try {
-    const newBalance = user.wallet_balance - final;
-    db.prepare('UPDATE users SET wallet_balance=?, total_spent_inr=? WHERE id=?')
-      .run(newBalance, user.total_spent_inr + final, user.id);
+    // ATOMIC, CONDITIONAL DEBIT. The WHERE clause evaluates the
+    // balance against the LIVE row value inside the write itself, so
+    // two concurrent orders can never both pass on the same snapshot
+    // (no double-spend, no negative balance) and a stale session
+    // balance can never be written back over a newer debit.
+    const debit = db.prepare(
+      `UPDATE users
+       SET wallet_balance = wallet_balance - ?, total_spent_inr = total_spent_inr + ?
+       WHERE id = ? AND wallet_balance >= ?`
+    ).run(final, final, user.id, final);
+    if (debit.changes !== 1) {
+      // Rolls back below and releases the upstream order (catch).
+      throw new InsufficientBalanceError();
+    }
+    newBalance = db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(user.id).wallet_balance;
     db.prepare(
       `INSERT INTO transactions (user_id, type, amount_inr, balance_after, ref_id, meta_json, created_at)
        VALUES (?, 'order', ?, ?, NULL, ?, ?)`
@@ -108,7 +121,7 @@ export async function placeOrder({ user, serviceId, link, quantity, couponCode =
          (order_ref, user_id, service_id, provider_id, provider_order_id, link, quantity,
           price_inr, base_cost_inr, coupon_id, discount_inr, status,
           start_count, remains, provider_charge, provider_currency, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)`
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)`
     );
     const res = ins.run(
       orderRef, user.id, service.id, provider.id, providerOrderId, String(link).trim(), quantity,
@@ -121,18 +134,34 @@ export async function placeOrder({ user, serviceId, link, quantity, couponCode =
     orderId = Number(res.lastInsertRowid);
 
     if (coupon) {
+      // ATOMIC COUPON CONSUMPTION. The usage limit is enforced by the
+      // UPDATE itself, so concurrent orders can never over-redeem a
+      // limited coupon. Failure rolls the whole order back — the
+      // wallet debit above is undone.
+      const consumed = db.prepare(
+        `UPDATE coupons SET used_count = used_count + 1
+         WHERE id = ? AND (usage_limit IS NULL OR used_count < usage_limit)`
+      ).run(coupon.id);
+      if (consumed.changes !== 1) {
+        const e = new Error('Coupon usage limit reached.'); e.code = 'BAD_COUPON'; throw e;
+      }
       db.prepare('INSERT INTO coupon_uses (coupon_id, user_id, order_id, discount_inr, created_at) VALUES (?,?,?,?,?)')
         .run(coupon.id, user.id, orderId, pricing.discount, now);
-      db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE id=?').run(coupon.id);
     }
     db.exec('COMMIT');
   } catch (e) {
-    db.exec('ROLLBACK');
-    // Duplicate provider order id → the same upstream order was already placed.
+    try { db.exec('ROLLBACK'); } catch { /* no active transaction — already rolled back */ }
+    // Duplicate provider order id → the same upstream order was already
+    // placed AND recorded: refuse WITHOUT cancelling (the stored row is
+    // the live upstream order).
     if (/idx_orders_prov_order|UNIQUE/.test(String(e.message))) {
       const err = new ProviderError('This upstream order id was already accepted — duplicate order refused.');
       throw err;
     }
+    // The provider accepted the order but we could not debit the wallet
+    // or record it — release the upstream order (best effort) so it is
+    // never delivered unpaid. A cancel failure must not mask the real error.
+    try { await adapter.cancel(providerOrderId); } catch { /* best effort */ }
     throw e;
   }
 
@@ -141,7 +170,7 @@ export async function placeOrder({ user, serviceId, link, quantity, couponCode =
       `#${orderRef} — ${service.name} × ${quantity}. Accepted by provider, ${initialStatus.replace('_', ' ')}.`);
   } catch { /* never block on a notification */ }
 
-  user.wallet_balance = user.wallet_balance - final;
+  user.wallet_balance = newBalance;
   const placed = orderWithService(db, orderId);
   return placed;
 }

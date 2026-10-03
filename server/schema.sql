@@ -76,8 +76,9 @@ CREATE TABLE IF NOT EXISTS services (
   min                INTEGER NOT NULL DEFAULT 1,
   max                INTEGER NOT NULL DEFAULT 999999,
   provider_rate      REAL NOT NULL,   -- base cost per 1000 (server-side only
-                                      -- for normal users; the selling price driver)
+                                       -- for normal users; the selling price driver)
   admin_rate         REAL NOT NULL,   -- selling rate per 1000
+  quality            TEXT,            -- provider quality tier, when supplied
   markup_type        TEXT NOT NULL DEFAULT 'percent',  -- 'percent' | 'fixed'
   markup_value       REAL NOT NULL DEFAULT 0,
   refill             INTEGER NOT NULL DEFAULT 0,      -- provider supports refill

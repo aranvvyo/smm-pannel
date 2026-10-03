@@ -43,6 +43,7 @@ function ensureColumns() {
   add('services', 'type', 'TEXT');
   add('services', 'refill', 'INTEGER NOT NULL DEFAULT 0');
   add('services', 'cancel', 'INTEGER NOT NULL DEFAULT 0');
+  add('services', 'quality', 'TEXT');
 
   add('orders', 'provider_charge', 'REAL');
   add('orders', 'provider_currency', 'TEXT');

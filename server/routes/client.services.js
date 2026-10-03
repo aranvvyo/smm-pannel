@@ -16,7 +16,7 @@ r.get('/', requireAuth, (req, res) => {
   const providerConfigured = db.prepare('SELECT COUNT(*) c FROM providers WHERE active=1').get().c > 0;
   const cats = db.prepare('SELECT id, name, slug, icon FROM categories WHERE active=1 ORDER BY sort').all();
   const svcs = db.prepare(
-    `SELECT id, category_id, name, description, speed_hint, type, min, max, provider_rate, admin_rate
+    `SELECT id, category_id, name, description, speed_hint, type, quality, min, max, provider_rate, admin_rate
      FROM services WHERE status=1 ORDER BY name`
   ).all();
 
@@ -32,6 +32,7 @@ r.get('/', requireAuth, (req, res) => {
           description: s.description,
           speed_hint: s.speed_hint,
           type: s.type,
+          quality: s.quality,
           min: s.min,
           max: s.max,
           // price per 1000 for display — the only pricing number clients see
@@ -60,6 +61,7 @@ r.get('/:id', requireAuth, (req, res) => {
     description: s.description,
     speed_hint: s.speed_hint,
     type: s.type,
+    quality: s.quality,
     min: s.min,
     max: s.max,
     price_per_1k: Math.round(rate),

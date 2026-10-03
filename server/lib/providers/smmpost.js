@@ -85,6 +85,8 @@ function parseServices(data) {
       category: String(s.category ?? 'Services'),
       description: String(s.description ?? ''),
       type: String(s.type ?? reflectType(s) ?? 'Default'),
+      avg: avgCompletionTime(s),
+      quality: qualityOf(s),
       refill: refillFlag(s),
       cancel: cancelFlag(s),
     }));
@@ -98,9 +100,30 @@ function parseServices(data) {
     category: String(s.category ?? 'Services'),
     description: String(s.description ?? s.details ?? ''),
     type: String(s.type ?? reflectType(s) ?? 'Default'),
+    avg: avgCompletionTime(s),
+    quality: qualityOf(s),
     refill: refillFlag(s),
     cancel: cancelFlag(s),
   }));
+}
+
+// Average completion time. Providers expose it as `avg` (a human string
+// like "2-3 hours", or minutes as a number), `average_time`, `average`
+// or `time`. Numeric values are minutes in the SMM POST contract.
+function avgCompletionTime(s) {
+  const raw = s.avg ?? s.average_time ?? s.average ?? s.time ?? s.speed ?? null;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) return `${Math.round(n)} min`;
+  return String(raw).trim().slice(0, 80);
+}
+
+// Optional quality tier (some suppliers tag services "High Quality",
+// "BEST", a numeric tier, etc.). Stored verbatim, never invented.
+function qualityOf(s) {
+  const raw = s.quality ?? s.quality_label ?? null;
+  if (raw === null || raw === undefined || raw === '') return null;
+  return String(raw).trim().slice(0, 80);
 }
 
 // Provider service lists may mark capabilities via boolean flags, "1"/"0"

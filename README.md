@@ -193,7 +193,7 @@ simulator knobs, own support channels).
 
 ```bash
 npm run package      # → instasmm.zip (source, excludes node_modules/data/.env)
-npm test             # → runs the money/coupon no-loss unit invariants
+npm test             # → money/coupon invariants + provider/settings/ordering regressions
 node scripts/smoke-test.mjs   # → end-to-end client+admin flow (needs a running server)
 ```
 
@@ -214,7 +214,7 @@ instasmm/
 ├─ package.json / .env.example
 ├─ server/          # Express API (config, db, middleware, lib, routes, webhooks)
 ├─ client/          # React + Vite SPA (src/pages: landing, auth, client, admin)
-└─ scripts/         # package.js (zip), smoke-test.mjs (E2E), test-money.mjs (units)
+└─ scripts/         # package.js (zip), smoke-test.mjs (E2E), test-money.mjs + test-regressions.mjs (units)
 ```
 
 All money is stored as integers (INR paise / USD cents) to avoid float bugs.

@@ -9,7 +9,7 @@
     "build": "cd client && vite build",
     "start": "node server/index.js",
     "package": "node scripts/package.js",
-    "test": "node scripts/test-money.mjs",
+    "test": "node scripts/test-money.mjs && node scripts/test-regressions.mjs",
     "seed": "node server/db.js"
   },
   "engines": {
