@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { notify } from '../lib/notifier.js';
+import { notifyAdmins } from '../lib/notifier.js';
 import { ah, sendErr } from './_helpers.js';
 
 const r = Router();
@@ -41,7 +41,9 @@ r.post('/', requireAuth, (req, res) => {
   ).run(req.user.id, String(subject).trim(), order_id || null, 'open', now, now);
   db.prepare('INSERT INTO ticket_replies (ticket_id, user_id, sender_role, body, created_at) VALUES (?,?,?,?,?)')
     .run(Number(info.lastInsertRowid), req.user.id, 'client', String(body).trim(), now);
-  notify(0, 'admin', 'New Support Ticket', `${req.user.email} opened “${String(subject).trim()}”.`);
+  // Staff-only event — a client's email must never be broadcast to
+  // every client account (notify(0) targets all clients).
+  notifyAdmins('admin', 'New Support Ticket', `${req.user.email} opened “${String(subject).trim()}”.`);
   const t = db.prepare('SELECT * FROM tickets WHERE id=?').get(Number(info.lastInsertRowid));
   return res.status(201).json({ ticket: ticketDTO(db, t) });
 });
@@ -57,7 +59,7 @@ r.post('/:id/reply', requireAuth, (req, res) => {
   db.prepare('INSERT INTO ticket_replies (ticket_id, user_id, sender_role, body, created_at) VALUES (?,?,?,?,?)')
     .run(t.id, req.user.id, 'client', body, Date.now());
   db.prepare("UPDATE tickets SET status='open', updated_at=? WHERE id=?").run(Date.now(), t.id);
-  notify(0, 'admin', 'Ticket Reply', `${req.user.email} replied to “${t.subject}”.`);
+  notifyAdmins('admin', 'Ticket Reply', `${req.user.email} replied to “${t.subject}”.`);
   return res.json({ ticket: ticketDTO(db, db.prepare('SELECT * FROM tickets WHERE id=?').get(t.id)) });
 });
 

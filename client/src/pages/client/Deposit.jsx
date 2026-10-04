@@ -11,7 +11,10 @@ const CUR = {
 
 // Real crypto display: amount_minor is an integer of the currency's own
 // decimals (e.g. 5_000_000 LTC satoshi = "0.05 LTC"). Never rendered as USD.
+// Returns '' for a missing amount so callers can fall back to the USD figure —
+// "0" is truthy and would silently defeat that fallback.
 const fmtCrypto = (currency, minor) => {
+  if (minor == null) return '';
   const dec = CUR[currency]?.decimals ?? 8;
   const n = (Number(minor) || 0) / Math.pow(10, dec);
   return n.toLocaleString('en-US', { maximumFractionDigits: dec });
@@ -218,8 +221,12 @@ export default function Deposit() {
                 <div>
                   <div className="card-label">Deposit {cum.label}</div>
                   <div className="card-value" style={{ fontSize: '1.7rem' }}>
-                    {fmtCrypto(invoice.currency, invoice.amount_minor) || fmtUsd((invoice.amount_usd || 0) / 100)}{' '}
-                    <span className="faint" style={{ fontSize: '1rem' }}>{cum.fmt}</span>
+                    {invoice.amount_minor > 0 ? (
+                      <>
+                        {fmtCrypto(invoice.currency, invoice.amount_minor)}{' '}
+                        <span className="faint" style={{ fontSize: '1rem' }}>{cum.fmt}</span>
+                      </>
+                    ) : fmtUsd((invoice.amount_usd || 0) / 100)}
                   </div>
                   <div className="muted" style={{ fontSize: '0.88rem' }}>
                     {pending
@@ -356,7 +363,9 @@ export default function Deposit() {
                             title={reopenable ? 'Open this invoice' : 'View details'}>
                             <td>
                               {d.status === 'in_progress' || d.status === 'confirmed'
-                                ? `${fmtCrypto(d.currency, d.received_minor) || fmtUsd((d.amount_usd || 0) / 100)} ${dr.short}`
+                                ? (d.received_minor > 0
+                                  ? `${fmtCrypto(d.currency, d.received_minor)} ${dr.short}`
+                                  : fmtUsd((d.amount_usd || 0) / 100))
                                 : fmtUsd((d.amount_usd || 0) / 100)}
                               <div className="faint" style={{ fontSize: '0.78rem' }}>
                                 {d.status === 'confirmed' ? `≈ ${fmtInr(d.amount_inr)} credited` : `≈ ${fmtInr(Math.round((d.amount_usd || 0) * rate))} expected`}

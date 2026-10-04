@@ -17,11 +17,12 @@ r.get('/landing/stats', (req, res) => {
 // GET /api/landing/services — a few showcase services (public, safe pricing only).
 r.get('/landing/services', (req, res) => {
   const svcs = getDb().prepare(
-    `SELECT s.name, s.speed_hint, s.min, s.max, s.admin_rate, c.name AS category, c.icon
+    `SELECT s.id, s.name, s.speed_hint, s.min, s.max, s.admin_rate, c.name AS category, c.icon
      FROM services s JOIN categories c ON c.id = s.category_id
      WHERE s.status=1 ORDER BY RANDOM() LIMIT 8`
   ).all();
   return res.json({ services: svcs.map((s) => ({
+    id: s.id,
     name: s.name, category: s.category, icon: s.icon, speed: s.speed_hint,
     min: s.min, max: s.max, price_per_1k: Math.round(s.admin_rate),
   })) });

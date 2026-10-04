@@ -3,7 +3,7 @@ import { getDb } from '../db.js';
 import { hashPassword, verifyPassword, isValidEmail } from '../lib/passwords.js';
 import {
   startSession, logout, requireAuth, roleForEmail,
-  clientIp, logSecurity, currentUser, checkRateLimit, recordAttempt, clearAttempts,
+  clientIp, rateLimitIp, logSecurity, currentUser, checkRateLimit, recordAttempt, clearAttempts,
 } from '../middleware/auth.js';
 import { notify } from '../lib/notifier.js';
 import { ah, sendErr } from './_helpers.js';
@@ -13,7 +13,9 @@ const r = Router();
 function tryLogin(req, res, treatAsAdmin) {
   const { email, password } = req.body || {};
   const ip = clientIp(req);
-  const key = `${treatAsAdmin ? 'adm:' : ''}${String(email).toLowerCase()}|${ip}`;
+  // Throttle key uses the socket address — X-Forwarded-For is
+  // attacker-controlled and must never gate a security decision.
+  const key = `${treatAsAdmin ? 'adm:' : ''}${String(email).toLowerCase()}|${rateLimitIp(req)}`;
   if (!checkRateLimit(key)) {
     return sendErr(res, 429, 'Too many attempts. Try again in a few minutes.');
   }
@@ -89,7 +91,8 @@ r.post('/register', (req, res) => {
 
   logSecurity(user.id, user.email, 'register', clientIp(req));
   notify(user.id, 'admin', 'Welcome to InstaSMM', 'Your account is ready. Top up your wallet and place your first order!');
-  startSession(res, user, 'client');
+  // The session row records the REAL client address — never a literal.
+  startSession(res, user, clientIp(req));
   return res.json({ user: publicUser(user, 'client') });
 });
 
@@ -100,8 +103,10 @@ r.post('/login', (req, res) => tryLogin(req, res, false));
 r.post('/logout', (req, res) => {
   const token = req.cookies?.instasmm_session;
   if (token) {
-    logout(token);
+    // Resolve the user BEFORE the session is deleted — after
+    // deletion currentUser() can no longer see the session.
     const user = currentUser(req);
+    logout(token);
     if (user) logSecurity(user.id, user.email, 'logout', clientIp(req));
   }
   res.clearCookie('instasmm_session', { path: '/' });

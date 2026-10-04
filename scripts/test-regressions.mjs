@@ -33,17 +33,21 @@ process.on('exit', () => {
 });
 
 const { getDb, getExchangeRate } = await import('../server/db.js');
-const { syncProviderServices } = await import('../server/lib/providerSync.js');
+const { syncProviderServices, categoryKey } = await import('../server/lib/providerSync.js');
 const { maskedProvider, createAdapter } = await import('../server/lib/provider.js');
 const {
   placeOrder, quoteOrder, cancelOrder, syncOrderStatuses,
+  userOrders, orderWithService,
   InsufficientBalanceError, ProviderError,
 } = await import('../server/lib/orderRouter.js');
 const { applyMarkup } = await import('../server/lib/money.js');
 const { hashPassword } = await import('../server/lib/passwords.js');
 const providersRouter = (await import('../server/routes/admin.providers.js')).default;
 const settingsRouter = (await import('../server/routes/admin.settings.js')).default;
-const clientOrdersRouter = (await import('../server/routes/client.orders.js')).default;
+const adminAuthRouter = (await import('../server/routes/admin.auth.js')).default;
+const clientAuthRouter = (await import('../server/routes/client.auth.js')).default;
+const { default: clientOrdersRouter, quoteRouter } = await import('../server/routes/client.orders.js');
+const clientServicesRouter = (await import('../server/routes/client.services.js')).default;
 
 const db = getDb();
 const dbFile = process.env.DB_FILE;
@@ -77,12 +81,17 @@ function makeRes() {
     json(body) { this.body = body; return this; },
     send(body) { this.body = body; return this; },
     type() { return this; },
+    cookie() { return this; },
+    clearCookie() { return this; },
   };
   return res;
 }
 
-async function call(router, { method = 'GET', url = '/', body = undefined, cookies = {}, query = {} } = {}) {
-  const req = { method, url, query, body, cookies, headers: {}, ip: '127.0.0.1', user: null };
+async function call(router, { method = 'GET', url = '/', body = undefined, cookies = {}, query = {}, headers = {}, remoteAddress = undefined } = {}) {
+  const req = { method, url, query, body, cookies, headers, ip: '127.0.0.1', user: null };
+  // rateLimitIp() reads the UNSPOOFABLE socket address — supply one
+  // to exercise per-IP throttle buckets (the default is 'unknown').
+  if (remoteAddress) req.socket = { remoteAddress };
   const res = makeRes();
   let nextErr = null;
   await router(req, res, (e) => { nextErr = e || null; });
@@ -366,10 +375,13 @@ await t('sync saves id, name, category, rate, min, max, avg completion time (spe
   assert.strictEqual(s1.refill, 1);
   assert.strictEqual(s1.cancel, 1);
   assert.strictEqual(s1.type, 'Default');
-  // category was created from the provider payload (sync derives the
-  // slug from the upstream service id — it does not reuse seed slugs)
-  const cat = db.prepare("SELECT * FROM categories WHERE slug='srvc-101'").get();
+  // Category is the canonical row for the provider's category
+  // NAME — the slug is derived from the normalized name (one
+  // row per name), never from the upstream service id.
+  const cat = db.prepare('SELECT * FROM categories WHERE slug=?').get(categoryKey('Instagram'));
   assert.ok(cat && cat.name === 'Instagram' && s1.category_id === cat.id);
+  // The legacy per-service slug must no longer be created.
+  assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM categories WHERE slug='srvc-101'").get().c, 0);
 
   const s2 = db.prepare('SELECT * FROM services WHERE provider_service_id=?').get('102');
   assert.strictEqual(s2.speed_hint, '45 min');
@@ -417,6 +429,117 @@ await t('malformed provider entries are skipped — never stored, never wiping v
   const good = db.prepare('SELECT * FROM services WHERE provider_service_id=?').get('105');
   assert.strictEqual(good.speed_hint, '10 min');
   assert.strictEqual(good.quality, 'OK');
+});
+
+await t('sync groups repeated provider category names into ONE category (no per-service categories)', async () => {
+  const provider = syncProvider();
+  const list = [
+    // Fresh, never-reused provider service ids: the full-flow
+    // test further down also syncs '201' and asserts added===1,
+    // so this fixture must not occupy that id first.
+    { service: '241', name: 'Auto Likes', category: 'Instagram Followers', rate: 9, min: 10, max: 1000 },
+    { service: '242', name: 'Real Likes', category: 'Instagram Followers', rate: 11, min: 20, max: 2000 },
+    { service: '243', name: 'Fast Likes', category: 'Instagram Followers', rate: 13, min: 30, max: 3000 },
+  ];
+  const out = syncProviderServices(db, { provider, list, globalMarkup: { type: 'percent', value: 25 } });
+  assert.strictEqual(out.added, 3);
+  assert.strictEqual(out.skipped, 0);
+  const rows = db.prepare('SELECT * FROM categories WHERE slug=?').all(categoryKey('Instagram Followers'));
+  assert.strictEqual(rows.length, 1, 'three services in the same category must share ONE category row');
+  const inCat = db.prepare('SELECT COUNT(*) c FROM services WHERE category_id=?').get(rows[0].id).c;
+  assert.strictEqual(inCat, 3, 'all three services must point at the shared category');
+});
+
+await t('sync keeps genuinely different categories separate (text and emoji variants)', async () => {
+  const provider = syncProvider();
+  const list = [
+    { service: '211', name: 'Subs', category: 'YouTube Subscribers', rate: 9, min: 10, max: 1000 },
+    { service: '212', name: 'Views', category: 'YouTube Views', rate: 2, min: 100, max: 100000 },
+    // An emoji marker is meaningful — it must NOT collapse into
+    // the plain-text category (the name hash keeps them apart).
+    { service: '213', name: 'Subs Fire', category: 'YouTube Subscribers 🔥', rate: 10, min: 10, max: 1000 },
+  ];
+  syncProviderServices(db, { provider, list, globalMarkup: { type: 'percent', value: 25 } });
+  const slugs = [
+    categoryKey('YouTube Subscribers'),
+    categoryKey('YouTube Views'),
+    categoryKey('YouTube Subscribers 🔥'),
+  ];
+  assert.notStrictEqual(slugs[0], slugs[2], 'emoji variant must stay distinct');
+  assert.notStrictEqual(slugs[0], slugs[1]);
+  assert.notStrictEqual(slugs[1], slugs[2]);
+  const names = slugs.map((s) => db.prepare('SELECT name FROM categories WHERE slug=?').get(s)?.name);
+  assert.deepStrictEqual(names, ['YouTube Subscribers', 'YouTube Views', 'YouTube Subscribers 🔥']);
+});
+
+await t('sync merges case/whitespace-only category variants into one category', async () => {
+  const provider = syncProvider();
+  const list = [
+    { service: '221', name: 'Members A', category: 'Telegram Members', rate: 5, min: 10, max: 1000 },
+    { service: '222', name: 'Members B', category: '  telegram members ', rate: 6, min: 10, max: 1000 },
+    { service: '223', name: 'Members C', category: 'Telegram   Members', rate: 7, min: 10, max: 1000 },
+  ];
+  syncProviderServices(db, { provider, list, globalMarkup: { type: 'percent', value: 25 } });
+  // Case and spacing are formatting noise — they must all map
+  // to a single canonical row.
+  const merged = db.prepare("SELECT COUNT(*) c FROM categories WHERE lower(replace(name,' ',''))='telegrammembers'").get().c;
+  assert.strictEqual(merged, 1, 'case/whitespace variants must merge into one category row');
+  const cat = db.prepare('SELECT * FROM categories WHERE slug=?').get(categoryKey('Telegram Members'));
+  assert.ok(cat, 'canonical category missing');
+  const inCat = db.prepare('SELECT COUNT(*) c FROM services WHERE category_id=?').get(cat.id).c;
+  assert.strictEqual(inCat, 3, 'all variant services must point at the canonical category');
+});
+
+await t('re-sync re-points legacy per-service categories onto the canonical category', async () => {
+  const provider = syncProvider();
+  // Simulate a row from the buggy slug era: a per-service
+  // category whose name matches a real category.
+  db.prepare("INSERT INTO categories (name, slug, icon, sort, active) VALUES ('Legacy Cat','srvc-legacy-999','package',0,1)").run();
+  const legacyCat = db.prepare("SELECT id FROM categories WHERE slug='srvc-legacy-999'").get();
+  db.prepare(
+    `INSERT INTO services (category_id, provider_id, provider_service_id, name, provider_rate, admin_rate,
+       min, max, status, created_at) VALUES (?,?,?,?,?,?,?,?,1,?)`
+  ).run(legacyCat.id, provider.id, '999', 'Legacy Service', 4.5, applyMarkup(4.5, 'percent', 25), 10, 1000, Date.now());
+
+  syncProviderServices(db, { provider, list: [{ service: '999', name: 'Legacy Service', category: 'Legacy Cat', rate: 4.5, min: 10, max: 1000 }], globalMarkup: { type: 'percent', value: 25 } });
+
+  const canonical = db.prepare('SELECT * FROM categories WHERE slug=?').get(categoryKey('Legacy Cat'));
+  assert.ok(canonical, 'canonical category row must exist');
+  const svc = db.prepare('SELECT * FROM services WHERE provider_service_id=?').get('999');
+  assert.strictEqual(svc.category_id, canonical.id, 're-sync must re-point the service to the canonical category');
+  assert.notStrictEqual(svc.category_id, legacyCat.id);
+  // Non-destructive: the legacy row stays, but is now empty,
+  // so it no longer surfaces anywhere in the UI.
+  const legacyCount = db.prepare('SELECT COUNT(*) c FROM services WHERE category_id=?').get(legacyCat.id).c;
+  assert.strictEqual(legacyCount, 0);
+});
+
+await t('GET /api/services: every category returns only its own services, counts are consistent', async () => {
+  const provider = syncProvider();
+  const list = [
+    { service: '301', name: 'Cat A One', category: 'Alpha Services', rate: 8, min: 10, max: 1000 },
+    { service: '302', name: 'Cat A Two', category: 'Alpha Services', rate: 9, min: 10, max: 1000 },
+    { service: '303', name: 'Cat B One', category: 'Beta Services', rate: 7, min: 10, max: 1000 },
+  ];
+  syncProviderServices(db, { provider, list, globalMarkup: { type: 'percent', value: 25 } });
+
+  const clientUser = createUser('svccat@test.dev', 1000);
+  const cookies = makeSession(clientUser.id);
+  const r = await call(clientServicesRouter, { method: 'GET', url: '/', cookies });
+  assert.strictEqual(r.statusCode, 200, `expected 200, got ${r.statusCode}: ${JSON.stringify(r.body)}`);
+  assert.strictEqual(r.body.provider_configured, true, 'an active provider exists');
+  const byName = new Map(r.body.categories.map((c) => [c.name, c]));
+  assert.ok(byName.has('Alpha Services') && byName.has('Beta Services'));
+  assert.strictEqual(byName.get('Alpha Services').services.length, 2);
+  assert.strictEqual(byName.get('Beta Services').services.length, 1);
+  // Every service carries its category_id and it matches the
+  // enclosing category — the invariant the order page filters on.
+  for (const c of r.body.categories) {
+    for (const s of c.services) {
+      assert.strictEqual(s.category_id, c.id, `service ${s.name} must carry its category_id`);
+      assert.ok(!('provider_rate' in s) && !('admin_rate' in s), 'no cost fields may leak to clients');
+    }
+  }
 });
 
 await t('sync endpoint refuses an empty provider response without touching the catalog', async () => {
@@ -472,6 +595,60 @@ await t('quote returns only display-safe fields (no provider rate / base cost / 
   for (const k of ['provider_rate', 'admin_rate', 'base', 'base_cost_inr', 'markup_value', 'sellRate']) {
     assert.ok(!(k in q), `${k} must never be exposed to clients`);
   }
+});
+
+await t('quote HTTP endpoint prices the exact requested quantity (server-side, input-bound)', async () => {
+  const svc = firstDemoService();
+  const user = createUser('quotehttp@test.dev', 1000000);
+  const cookies = makeSession(user.id);
+  const q1 = await call(quoteRouter, { method: 'POST', url: '/quote', body: { serviceId: svc.id, quantity: svc.min, coupon_code: null }, cookies });
+  assert.strictEqual(q1.statusCode, 200, JSON.stringify(q1.body));
+  assert.strictEqual(q1.body.ok, true);
+  // The response echoes the exact inputs it priced — the
+  // client ties its displayed quote to these values.
+  assert.strictEqual(q1.body.serviceId, svc.id);
+  assert.strictEqual(q1.body.quantity, svc.min);
+  assert.strictEqual(typeof q1.body.price, 'number');
+  assert.strictEqual(typeof q1.body.final, 'number');
+  assert.strictEqual(q1.body.invalidCoupon, false);
+  assert.strictEqual(q1.body.belowMin, false);
+  // Price must scale with the requested quantity — proof the
+  // server computed it for these exact inputs. Prices are
+  // integer paise, so a doubled quantity is double within
+  // ±1 paise of independent rounding.
+  const q2 = await call(quoteRouter, { method: 'POST', url: '/quote', body: { serviceId: svc.id, quantity: svc.min * 2, coupon_code: null }, cookies });
+  assert.strictEqual(q2.statusCode, 200);
+  assert.strictEqual(q2.body.quantity, svc.min * 2);
+  const doubled = 2 * q1.body.final;
+  assert.ok(q2.body.final >= doubled - 1 && q2.body.final <= doubled + 1,
+    `a doubled quantity must quote ~double the price (got ${q1.body.final} -> ${q2.body.final})`);
+  // No cost fields may leak to clients.
+  for (const k of ['provider_rate', 'admin_rate', 'base_cost_inr', 'markup_value']) {
+    assert.ok(!(k in q1.body), `${k} must never be exposed to clients`);
+  }
+});
+
+await t('quote HTTP endpoint rejects an out-of-range quantity with 400 BAD_QTY', async () => {
+  const svc = firstDemoService();
+  const user = createUser('quotebounds@test.dev', 1000000);
+  const cookies = makeSession(user.id);
+  const lo = await call(quoteRouter, { method: 'POST', url: '/quote', body: { serviceId: svc.id, quantity: svc.min - 1, coupon_code: null }, cookies });
+  assert.strictEqual(lo.statusCode, 400, `expected 400, got ${lo.statusCode}: ${JSON.stringify(lo.body)}`);
+  assert.strictEqual(lo.body.code, 'BAD_QTY');
+  const hi = await call(quoteRouter, { method: 'POST', url: '/quote', body: { serviceId: svc.id, quantity: svc.max + 1, coupon_code: null }, cookies });
+  assert.strictEqual(hi.statusCode, 400);
+  assert.strictEqual(hi.body.code, 'BAD_QTY');
+});
+
+await t('quote HTTP endpoint flags an unknown coupon without failing or discounting', async () => {
+  const svc = firstDemoService();
+  const user = createUser('quotecoupon@test.dev', 1000000);
+  const cookies = makeSession(user.id);
+  const r = await call(quoteRouter, { method: 'POST', url: '/quote', body: { serviceId: svc.id, quantity: svc.min, coupon_code: 'NO-SUCH-COUPON' }, cookies });
+  assert.strictEqual(r.statusCode, 200, JSON.stringify(r.body));
+  assert.strictEqual(r.body.invalidCoupon, true, 'an unknown coupon must be flagged, not silently ignored');
+  assert.strictEqual(r.body.discount, 0, 'an invalid coupon must not discount anything');
+  assert.strictEqual(r.body.final, r.body.price, 'the final price must be the undiscounted sale price');
 });
 
 await t('client order payload hides provider order id, provider id and base cost', async () => {
@@ -676,6 +853,116 @@ await t('production smmpost adapter drives the full order flow: add → order ro
     assert.ok(statusCall && statusCall.body.includes('orders=SUP-991'), 'the batch status query must carry the provider order id');
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+console.log('P4 — authentication hardening');
+
+await t('admin login is throttled: 5 failures then 429, a correct login resets the bucket', async () => {
+  const wrong = { email: ADMIN_EMAIL, password: 'not-the-admin-password' };
+  for (let i = 0; i < 5; i++) {
+    const r = await call(adminAuthRouter, { method: 'POST', url: '/login', body: wrong });
+    assert.strictEqual(r.statusCode, 401, `attempt ${i + 1} must be rejected with 401`);
+  }
+  const limited = await call(adminAuthRouter, { method: 'POST', url: '/login', body: wrong });
+  assert.strictEqual(limited.statusCode, 429, 'a 6th failed admin login must be throttled');
+  // Buckets are per-key: an unrelated login is unaffected. (The 15-minute
+  // window reset itself prunes stale records in checkRateLimit — it needs a
+  // real 15-minute wait, so it is verified by source inspection only.)
+  const other = await call(adminAuthRouter, {
+    method: 'POST', url: '/login',
+    body: { email: 'unrelated-admin@test.dev', password: 'wrong' },
+  });
+  assert.strictEqual(other.statusCode, 403, 'an unrelated login bucket must be unaffected (403, not 429)');
+  const ok = await call(adminAuthRouter, {
+    method: 'POST', url: '/login',
+    body: { email: ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD_1 },
+  });
+  assert.strictEqual(ok.statusCode, 200, JSON.stringify(ok.body));
+  assert.strictEqual(ok.body.user.role, 'admin');
+  // The successful login RESET the bucket: the very next wrong
+  // attempt is counted from zero again (401 — not an instant 429).
+  const reset = await call(adminAuthRouter, { method: 'POST', url: '/login', body: wrong });
+  assert.strictEqual(reset.statusCode, 401, 'a correct login must reset the throttle bucket');
+});
+
+await t('admin login throttle buckets are per IP: another socket address is unaffected', async () => {
+  const wrong = { email: ADMIN_EMAIL, password: 'not-the-admin-password' };
+  // Exhaust the bucket for ONE socket address only.
+  for (let i = 0; i < 5; i++) {
+    const r = await call(adminAuthRouter, { method: 'POST', url: '/login', body: wrong, remoteAddress: '10.9.8.7' });
+    assert.strictEqual(r.statusCode, 401, `attempt ${i + 1} from IP-A must be rejected with 401`);
+  }
+  const blocked = await call(adminAuthRouter, { method: 'POST', url: '/login', body: wrong, remoteAddress: '10.9.8.7' });
+  assert.strictEqual(blocked.statusCode, 429, 'the exhausted IP bucket must throttle a 6th failure');
+  // The same admin email from a DIFFERENT address has an independent bucket.
+  const other = await call(adminAuthRouter, {
+    method: 'POST', url: '/login',
+    body: { email: ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD_1 },
+    remoteAddress: '10.9.8.8',
+  });
+  assert.strictEqual(other.statusCode, 200, 'a different socket address must have an independent throttle bucket');
+  assert.strictEqual(other.body.user.role, 'admin');
+});
+
+await t('rotating X-Forwarded-For cannot bypass the client login throttle', async () => {
+  const body = { email: 'xff-spray@test.dev', password: 'wrong' };
+  for (let i = 0; i < 5; i++) {
+    const r = await call(clientAuthRouter, {
+      method: 'POST', url: '/login', body,
+      headers: { 'x-forwarded-for': `10.0.0.${i + 1}` },
+    });
+    assert.strictEqual(r.statusCode, 401, `spoofed attempt ${i + 1} must still be recorded`);
+  }
+  const r = await call(clientAuthRouter, {
+    method: 'POST', url: '/login', body,
+    headers: { 'x-forwarded-for': '10.0.0.99' },
+  });
+  assert.strictEqual(r.statusCode, 429, 'the throttle key must ignore X-Forwarded-For');
+});
+
+await t('order history survives a detached service (LEFT JOIN — history is never lost)', async () => {
+  const svc = firstDemoService();
+  const user = createUser('orphan@test.dev', 500000);
+  const order = await placeOrder({ user, serviceId: svc.id, link: 'https://instagram.com/orphan', quantity: svc.min });
+  // Simulate the legacy demo-provider cleanup: the service row is gone.
+  db.prepare('UPDATE orders SET service_id=NULL WHERE id=?').run(order.id);
+  const history = userOrders(db, user.id);
+  const row = history.find((o) => o.id === order.id);
+  assert.ok(row, 'a detached order must remain in the user history');
+  assert.strictEqual(row.order_ref, order.order_ref);
+  assert.strictEqual(row.price_inr, order.price_inr);
+  const single = orderWithService(db, order.id);
+  assert.ok(single && single.id === order.id, 'order detail must still resolve');
+});
+
+await t('status ticker syncs a detached order (service deleted) — never stuck PENDING forever', async () => {
+  const svc = firstDemoService();
+  const user = createUser('detached-sync@test.dev', 500000);
+  const order = await placeOrder({ user, serviceId: svc.id, link: 'https://instagram.com/detached-sync', quantity: svc.min });
+  assert.strictEqual(order.status, 'PENDING');
+  // Simulate the service row being deleted AFTER the order was placed.
+  // This mirrors the production cleanup path (cleanupDemoProviders):
+  // order history is detached FIRST — service_id=NULL is the schema's
+  // documented "service deleted, history preserved" representation
+  // (schema.sql, orders.service_id) — and the service row is deleted
+  // only once no order references it. A bare DELETE would violate the
+  // orders.service_id foreign key (PRAGMA foreign_keys=ON), and a
+  // dangling id is not a representable state — the old
+  // `UPDATE … SET service_id=999999` crashed with
+  // "FOREIGN KEY constraint failed" for exactly that reason.
+  db.prepare('UPDATE orders SET service_id=NULL WHERE service_id=?').run(svc.id);
+  db.prepare('DELETE FROM services WHERE id=?').run(svc.id);
+  // DEMO_SPEED=1000 fast-forwards the lifecycle well past completion.
+  await new Promise((res) => setTimeout(res, 1500));
+  await syncOrderStatuses();
+  const done = db.prepare('SELECT status, service_id, start_count, remains, quantity FROM orders WHERE id=?').get(order.id);
+  assert.strictEqual(done.service_id, null, 'the order must survive the service deletion, detached (history preserved)');
+  assert.notStrictEqual(done.status, 'PENDING', 'a detached order must still be synced (the status query must not JOIN services)');
+  assert.ok(['COMPLETED', 'PARTIAL', 'IN_PROGRESS'].includes(done.status), `unexpected status ${done.status}`);
+  if (done.status === 'COMPLETED') {
+    assert.strictEqual(done.start_count, done.quantity, 'a completed detached order must show full start_count');
+    assert.strictEqual(done.remains, 0, 'a completed detached order must show nothing remaining');
   }
 });
 

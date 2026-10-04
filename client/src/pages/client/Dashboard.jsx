@@ -20,7 +20,7 @@ export default function ClientDashboard() {
   const recent = orders;
 
   return (
-    <>
+    <div className="anime-page">
       <h1 className="page-title">Dashboard</h1>
       <p className="page-sub">Welcome back{user?.name ? `, ${user.name}` : ''}</p>
 
@@ -101,6 +101,6 @@ export default function ClientDashboard() {
       <div className="flex" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
         <Link to="/orders" className="btn btn-outline btn-sm">View all orders <Icon name="arrowRight" size={14} stroke={2.2} /></Link>
       </div>
-    </>
+    </div>
   );
 }

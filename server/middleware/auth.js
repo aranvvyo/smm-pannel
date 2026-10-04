@@ -104,6 +104,13 @@ export function clientIp(req) {
     || 'unknown';
 }
 
+// Unspoofable client address for SECURITY decisions (login
+// throttling). X-Forwarded-For is attacker-controlled and may
+// only ever feed audit logs — never a rate-limit key.
+export function rateLimitIp(req) {
+  return req.socket?.remoteAddress || 'unknown';
+}
+
 export function logSecurity(userId, email, action, ip) {
   getDb().prepare('INSERT INTO security_logs (user_id, email, action, ip, created_at) VALUES (?,?,?,?,?)')
     .run(userId || null, email || null, action, ip || null, Date.now());

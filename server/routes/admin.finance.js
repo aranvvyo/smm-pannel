@@ -21,7 +21,7 @@ dashboardRouter.get('/', (req, res) => {
     series: dailySeries(14),
     recentOrders: db.prepare(
       `SELECT o.order_ref, o.status, o.price_inr, o.created_at, u.email, s.name AS service_name
-       FROM orders o JOIN users u ON u.id=o.user_id JOIN services s ON s.id=o.service_id
+       FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN services s ON s.id=o.service_id
        ORDER BY o.created_at DESC LIMIT 8`
     ).all(),
     recentDeposits: db.prepare(

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { applyMarkup } from '../lib/money.js';
+import { canonicalizeCategories } from '../lib/providerSync.js';
 import { logSecurity } from '../middleware/auth.js';
 import { ah, sendErr } from './_helpers.js';
 
@@ -31,7 +32,18 @@ r.get('/', (req, res) => {
      JOIN providers p ON p.id = s.provider_id
      ORDER BY c.sort, s.name`
   ).all();
-  const cats = db.prepare('SELECT * FROM categories ORDER BY sort').all();
+  // After the canonical-category sync fix, legacy per-service category
+  // rows (old "srvc-*" slugs) can remain in the table with no services.
+  // Hide empty categories from the create-form dropdown — read-only
+  // filtering, nothing is deleted. Duplicate rows that share a
+  // normalized name are merged to ONE canonical entry so the dropdown
+  // never shows the same category twice.
+  const rawCats = db.prepare(
+    `SELECT c.* FROM categories c
+     WHERE EXISTS (SELECT 1 FROM services s WHERE s.category_id = c.id)
+     ORDER BY c.sort`
+  ).all();
+  const cats = canonicalizeCategories(rawCats).canonical;
   return res.json({ services: rows.map(svcCell), categories: cats });
 });
 
@@ -49,6 +61,11 @@ r.post('/', (req, res) => {
   const p = db.prepare('SELECT id FROM providers WHERE id=?').get(providerId);
   const c = db.prepare('SELECT id FROM categories WHERE id=?').get(categoryId);
   if (!p || !c) return sendErr(res, 400, 'Invalid provider or category.');
+  const minVal = Number(body.min ?? 1);
+  const maxVal = Number(body.max ?? 999999);
+  if (!Number.isFinite(minVal) || minVal < 0 || !Number.isFinite(maxVal) || maxVal <= 0) {
+    return sendErr(res, 400, 'min and max must be valid numbers.');
+  }
   const markupType = body.markup_type === 'fixed' ? 'fixed' : 'percent';
   const markupValue = Number(body.markup_value || (markupType === 'percent' ? 25 : 0));
   const adminRate = applyMarkup(providerRate, markupType, markupValue);
@@ -60,7 +77,7 @@ r.post('/', (req, res) => {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     categoryId, providerId, body.provider_service_id || null, name, body.description || null,
-    body.speed_hint || null, body.type || 'Default', Number(body.min || 1), Number(body.max || 999999),
+    body.speed_hint || null, body.type || 'Default', minVal, maxVal,
     providerRate, adminRate, quality, markupType, markupValue,
     Number(body.refill) ? 1 : 0, Number(body.cancel) ? 1 : 0, body.status === 0 ? 0 : 1, now
   );
@@ -81,6 +98,21 @@ r.patch('/:id', (req, res) => {
   const overrideRate = Number.isFinite(Number(body.admin_rate)) ? Number(body.admin_rate) : null;
   const adminRate = overrideRate != null ? overrideRate : applyMarkup(providerRate, markupType, markupValue);
   const quality = body.quality === undefined ? s.quality : (String(body.quality).trim() || null);
+  const newMin = body.min === undefined ? s.min : Number(body.min);
+  const newMax = body.max === undefined ? s.max : Number(body.max);
+  if (!Number.isFinite(newMin) || newMin < 0 || !Number.isFinite(newMax) || newMax <= 0) {
+    return sendErr(res, 400, 'min and max must be valid numbers.');
+  }
+
+  // A service must always belong to an existing category — reject
+  // an update that reassigns it to a missing category id.
+  if (body.category_id !== undefined) {
+    const newCatId = Number(body.category_id);
+    const catRow = db.prepare('SELECT id FROM categories WHERE id=?').get(newCatId);
+    if (!Number.isFinite(newCatId) || !catRow) {
+      return sendErr(res, 400, 'Invalid category_id — select an existing category.');
+    }
+  }
 
   db.prepare(
     `UPDATE services SET name=?, description=?, speed_hint=?, type=?, min=?, max=?,
@@ -88,7 +120,7 @@ r.patch('/:id', (req, res) => {
       category_id=?, provider_id=?, provider_service_id=? WHERE id=?`
   ).run(
     String(body.name ?? s.name), body.description ?? s.description, body.speed_hint ?? s.speed_hint,
-    body.type ?? s.type, Number(body.min ?? s.min), Number(body.max ?? s.max),
+    body.type ?? s.type, newMin, newMax,
     providerRate, adminRate, quality, markupType, markupValue,
     body.refill === undefined ? s.refill : (Number(body.refill) ? 1 : 0),
     body.cancel === undefined ? s.cancel : (Number(body.cancel) ? 1 : 0),

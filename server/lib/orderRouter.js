@@ -234,9 +234,11 @@ export function startOrderTicker() {
 
 export async function syncOrderStatuses() {
   const db = getDb();
+  // No JOIN to services: the provider order id lives on the order row, so
+  // an order whose service was later deleted (detached) must STILL be
+  // synced — otherwise it would be stuck PENDING/IN_PROGRESS forever.
   const active = db.prepare(
-    `SELECT o.*, s.provider_rate FROM orders o
-     JOIN services s ON s.id = o.service_id
+    `SELECT o.* FROM orders o
      WHERE o.status IN ('PENDING','IN_PROGRESS')`
   ).all();
 
@@ -421,7 +423,7 @@ export function orderWithService(db, orderId) {
             s.name AS service_name, s.description AS service_description, s.speed_hint, s.min, s.max,
             c.name AS category_name
      FROM orders o
-     JOIN services s ON s.id = o.service_id
+     LEFT JOIN services s ON s.id = o.service_id
      LEFT JOIN categories c ON c.id = s.category_id
      WHERE o.id=?`).get(orderId);
   if (!o) return null;
@@ -435,7 +437,7 @@ export function userOrders(db, userId) {
             o.status, o.start_count, o.remains, o.created_at,
             s.name AS service_name, s.speed_hint, c.name AS category_name
      FROM orders o
-     JOIN services s ON s.id = o.service_id
+     LEFT JOIN services s ON s.id = o.service_id
      LEFT JOIN categories c ON c.id = s.category_id
      WHERE o.user_id=? ORDER BY o.created_at DESC LIMIT 200`
   ).all(userId);

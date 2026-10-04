@@ -11,6 +11,7 @@ import OrderPage from './pages/client/OrderPage.jsx';
 import OrdersList from './pages/client/Orders.jsx';
 import WalletPage from './pages/client/Wallet.jsx';
 import DepositPage from './pages/client/Deposit.jsx';
+import VcDepositPage from './pages/client/VcDeposit.jsx';
 import TicketsPage from './pages/client/Tickets.jsx';
 import NotificationsPage from './pages/client/Notifications.jsx';
 import ProfilePage from './pages/client/Profile.jsx';
@@ -63,6 +64,7 @@ export default function App() {
           <Route path="/orders" element={<OrdersList />} />
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/deposit" element={<DepositPage />} />
+          <Route path="/deposit/inr" element={<VcDepositPage />} />
           <Route path="/tickets" element={<TicketsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/profile" element={<ProfilePage />} />

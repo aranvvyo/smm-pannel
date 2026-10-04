@@ -67,8 +67,9 @@ r.get('/wallet/transactions', requireAuth, (req, res) => {
 
 // GET /api/cryptos — supported deposit cryptos (with LTC hot flag). The
 // `simulated` flag is only ever true in SMM_TEST mode — a production client is
-// never told to trust a fake/test payment path (Task 18).
-r.get('/cryptos', (req, res) => {
+// never told to trust a fake/test payment path (Task 18). Authenticated like
+// every other client endpoint.
+r.get('/cryptos', requireAuth, (req, res) => {
   const testMode = process.env.SMM_TEST === '1';
   return res.json({
     cryptos: config.depositCryptos.map((c) => ({ id: c.id, label: c.label, short: c.short, hot: c.hot })),

@@ -29,8 +29,8 @@ export default function Login({ admin = false }) {
   };
 
   return (
-    <div className="auth-wrap">
-      <form className="card auth-card" onSubmit={submit}>
+    <div className="auth-wrap anime-page">
+      <form className="card card-gradient auth-card" onSubmit={submit}>
         <div style={{ textAlign: 'center', marginBottom: 18 }}>
           <span className="logo" style={{ justifyContent: 'center' }}><span className="logo-mark"><Icon name="logo" size={18} stroke={2} style={{ color: '#fff' }} /></span>InstaSMM</span>
           <h1 className="page-title" style={{ fontSize: '1.5rem', marginTop: 14 }}>

@@ -602,3 +602,305 @@ input, select, textarea, button { max-width: 100%; }
   .btn { padding: 10px 14px; }
   .toasts { left: 12px; right: 12px; max-width: none; }
 }
+
+/* ==========================================================================
+   Anime 3D theme — Stages 2–4 (landing hero + 3D scene).
+   ADDITIVE ONLY: every token/class above is untouched so all other pages
+   keep their current appearance.
+   ========================================================================== */
+:root {
+  --bg-deep: #05070f;            /* near-black */
+  --violet: #8b5cf6;
+  --magenta: #e879f9;            /* restrained highlight */
+  --glass: rgba(13, 18, 38, 0.55);
+  --glass-border: rgba(99, 102, 241, 0.22);
+}
+
+/* Landing backdrop — deep midnight navy + restrained neon gradients. */
+.anime-page {
+  background:
+    radial-gradient(1100px 520px at 85% -10%, rgba(139, 92, 246, 0.16), transparent 60%),
+    radial-gradient(900px 480px at -10% 20%, rgba(34, 211, 238, 0.10), transparent 55%),
+    radial-gradient(700px 420px at 50% 110%, rgba(232, 121, 249, 0.07), transparent 60%),
+    var(--bg);
+}
+
+/* Two-column hero: copy left, 3D scene right; stacked on phones/tablets. */
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 28px;
+  align-items: center;
+}
+@media (max-width: 900px) {
+  .hero-grid { grid-template-columns: 1fr; gap: 20px; }
+}
+.hero-copy { min-width: 0; }
+.hero-copy .hero-badges { justify-content: flex-start; }
+.hero-copy .hero-stats { justify-content: flex-start; }
+
+/* 3D scene frame — glass panel; the canvas never intercepts pointers. */
+.hero3d { position: relative; min-width: 0; }
+.hero3d-frame {
+  position: relative;
+  height: clamp(300px, 42vw, 460px);
+  border-radius: var(--radius);
+  border: 1px solid var(--glass-border);
+  background:
+    linear-gradient(160deg, rgba(99,102,241,0.10), rgba(34,211,238,0.05) 45%, rgba(139,92,246,0.10)),
+    var(--bg-elev);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.hero3d-frame canvas { display: block; width: 100% !important; height: 100% !important; pointer-events: none; }
+@media (max-width: 640px) { .hero3d-frame { height: 300px; } }
+
+/* Lazy-load skeleton for the 3D hero chunk. */
+.hero3d-skeleton {
+  height: clamp(300px, 42vw, 460px);
+  border-radius: var(--radius);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-elev);
+}
+
+/* Neutral placeholder + loading states inside the frame. */
+.scene-placeholder,
+.scene-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--faint);
+  text-align: center;
+  padding: 20px;
+}
+.scene-loading { color: var(--muted); font-size: 0.9rem; }
+
+/* User toggle for heavy 3D effects. */
+.scene-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: color 0.15s, border-color 0.15s;
+}
+.scene-toggle:hover { color: var(--text); border-color: var(--accent); }
+
+.scene-caption { margin-top: 10px; font-size: 0.8rem; color: var(--faint); text-align: center; }
+
+/* Landing nav anchor links (hidden where there is no horizontal room). */
+.nav-links-landing { display: flex; align-items: center; gap: 2px; margin-right: 10px; }
+.nav-links-landing a {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 8px 11px;
+  border-radius: 9px;
+  white-space: nowrap;
+}
+.nav-links-landing a:hover { color: var(--text); background: var(--surface); text-decoration: none; }
+@media (max-width: 820px) { .nav-links-landing { display: none; } }
+
+/* Decorative platform icon chips in the hero. */
+.platform-deco { display: flex; gap: 10px; justify-content: flex-start; flex-wrap: wrap; margin-top: 18px; }
+.platform-deco span {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  color: var(--muted);
+}
+
+/* Footer safe-area for iPhone home indicator. */
+.site-footer { padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+
+/* Reduced motion: kill decorative transitions and animations. */
+@media (prefers-reduced-motion: reduce) {
+  .hero3d-frame,
+  .scene-toggle,
+  .nav-links-landing a,
+  .card.hoverable { transition: none !important; }
+  .spin,
+  .bell-dot,
+  .dot.pulse,
+  .toast { animation: none !important; }
+}
+
+/* ── New Order: selected-service detail panel ─────────────────────────
+   Vertical 2-column card on phones, 4-column grid on desktop. */
+.svc-detail {
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+}
+.svc-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.svc-detail-desc {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.svc-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+@media (min-width: 700px) {
+  .svc-detail-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.svc-detail-stat { min-width: 0; }
+.svc-detail-stat .row-label { display: block; margin-bottom: 3px; }
+.svc-detail-stat b {
+  display: block;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+/* ==========================================================================
+   VCGetaway INR deposit — additive, self-contained 3D payment experience.
+   Nothing above is modified. All motion is disabled under
+   prefers-reduced-motion (see the block at the end of this section).
+   ========================================================================== */
+.vc-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+@media (min-width: 820px) { .vc-grid { grid-template-columns: 1.05fr 0.95fr; align-items: start; } }
+
+/* 3D scene — the card tilts toward the pointer (CSS transform only). */
+.vc-scene { perspective: 1200px; }
+.vc-card3d {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.25s ease;
+  will-change: transform;
+}
+.vc-card3d-face {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  padding: 22px;
+  min-height: 220px;
+  background:
+    radial-gradient(130% 130% at 12% 0%, rgba(139, 92, 246, 0.38), transparent 55%),
+    radial-gradient(130% 130% at 100% 100%, rgba(34, 211, 238, 0.30), transparent 55%),
+    linear-gradient(150deg, #312e81 0%, #1e1b4b 55%, #0f172a 100%);
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  box-shadow: 0 26px 60px -18px rgba(99, 102, 241, 0.55), 0 10px 26px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #fff;
+}
+.vc-shine {
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 32%, rgba(255, 255, 255, 0.16) 46%, transparent 60%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  transform: translateX(-40%);
+  transition: transform 0.35s ease;
+}
+.vc-card3d:hover .vc-shine { transform: translateX(40%); }
+.vc-brand { display: flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: -0.02em; font-size: 1rem; }
+.vc-brand .vc-mark {
+  width: 30px; height: 30px; border-radius: 9px;
+  background: linear-gradient(135deg, #8b5cf6, #22d3ee);
+  display: grid; place-items: center;
+  box-shadow: 0 0 18px -2px rgba(139, 92, 246, 0.7);
+}
+.vc-amount { font-size: 2.1rem; font-weight: 900; letter-spacing: -0.03em; line-height: 1.05; }
+.vc-amount-sub { font-size: 0.8rem; opacity: 0.82; margin-top: 3px; }
+.vc-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vc-chip { width: 36px; height: 25px; border-radius: 6px; background: linear-gradient(135deg, #fbbf24, #f59e0b); opacity: 0.92; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); }
+.vc-network { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.7; }
+
+/* Amount presets + custom input */
+.vc-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+.vc-preset {
+  padding: 9px 16px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--muted); font-weight: 700; font-size: 0.9rem; cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s;
+}
+.vc-preset:hover { border-color: var(--accent); color: var(--text); }
+.vc-preset.active { background: var(--grad); color: #fff; border-color: transparent; box-shadow: var(--glow); }
+.vc-preset:active { transform: scale(0.96); }
+
+/* Breakdown rows */
+.vc-rows { display: flex; flex-direction: column; gap: 2px; }
+.vc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--border-soft); font-size: 0.92rem; }
+.vc-row:last-child { border-bottom: none; }
+.vc-row .vc-k { color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.vc-row .vc-v { font-weight: 700; color: var(--text); }
+.vc-surcharge-badge { font-size: 0.66rem; font-weight: 800; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 999px; background: rgba(251,191,36,0.14); color: var(--warn); border: 1px solid rgba(251,191,36,0.3); }
+.vc-total { background: linear-gradient(90deg, rgba(99,102,241,0.12), rgba(34,211,238,0.06)); border-radius: 12px; padding: 13px 14px; margin-top: 6px; }
+.vc-total .vc-v { font-size: 1.25rem; font-weight: 900; letter-spacing: -0.02em; }
+
+/* Integration-pending notice */
+.vc-notice {
+  display: flex; align-items: flex-start; gap: 10px;
+  margin-top: 14px; padding: 12px 14px; border-radius: 12px;
+  background: rgba(251, 191, 36, 0.10);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: var(--warn); font-size: 0.86rem; line-height: 1.5;
+}
+.vc-notice .vc-notice-icon { flex-shrink: 0; margin-top: 1px; }
+
+/* Transaction cards */
+.vc-tx-list { display: flex; flex-direction: column; gap: 10px; }
+.vc-tx {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 14px; border-radius: 12px;
+  background: var(--bg-elev); border: 1px solid var(--border-soft);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.vc-tx:hover { border-color: var(--accent); transform: translateY(-2px); }
+.vc-tx-icon {
+  width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: var(--surface-2); border: 1px solid var(--border-soft);
+}
+.vc-tx-main { flex: 1; min-width: 0; }
+.vc-tx-amount { font-weight: 800; font-size: 0.95rem; }
+.vc-tx-meta { font-size: 0.78rem; color: var(--faint); margin-top: 2px; }
+
+/* Status strips — pending is amber, never success. */
+.vc-status { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; padding: 11px 13px; border-radius: 11px; font-size: 0.87rem; line-height: 1.5; }
+.vc-status .dot { margin-top: 5px; }
+.vc-status.pending { background: rgba(251,191,36,0.10); border: 1px solid rgba(251,191,36,0.35); color: var(--warn); }
+.vc-status.success { background: rgba(52,211,153,0.10); border: 1px solid rgba(52,211,153,0.35); color: var(--success); }
+.vc-status.failed { background: rgba(248,113,113,0.10); border: 1px solid rgba(248,113,113,0.35); color: var(--danger); }
+.vc-status .dot.pulse { animation: vcDotPulse 1.6s ease-in-out infinite; }
+@keyframes vcDotPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* Reduced motion: no tilt, no shine sweep, no pulsing dots. */
+@media (prefers-reduced-motion: reduce) {
+  .vc-card3d, .vc-shine, .vc-preset, .vc-tx { transition: none !important; }
+  .vc-card3d:hover .vc-shine { transform: translateX(-40%); }
+  .vc-status .dot.pulse { animation: none !important; }
+  .vc-preset:active { transform: none; }
+}

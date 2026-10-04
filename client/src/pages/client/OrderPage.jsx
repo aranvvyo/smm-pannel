@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { get, post } from '../../api.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useToast, fmtInr, StatusBadge, Icon, Empty } from '../../ui.jsx';
+import { createQuoteFlow } from '../../lib/quoteFlow.js';
 
 const VALID_ICONS = new Set(['camera', 'play', 'thumbsUp', 'birds', 'send', 'music', 'sparkles', 'zap', 'users', 'eye', 'heart', 'package']);
 
@@ -19,28 +20,73 @@ export default function OrderPage() {
   const [qty, setQty] = useState('');
   const [coupon, setCoupon] = useState('');
   const [search, setSearch] = useState('');
-  const [quote, setQuote] = useState(null);
-  const [quoteBusy, setQuoteBusy] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placed, setPlaced] = useState(null);
   const [err, setErr] = useState('');
-  const [providerConfigured, setProviderConfigured] = useState(null); // null = loading
+  // Quote state (quote, loading, quote error) is owned by the
+  // shared flow module — plain JS, so the exact protocol this
+  // page runs is also executed by the async race regression
+  // test (scripts/test-quote-race.mjs).
+  const [quoteState, setQuoteState] = useState({ quote: null, busy: false, error: '' });
+  const quoteFlow = useMemo(() => createQuoteFlow({
+    fetchQuote: ({ serviceId, quantity, couponCode }) =>
+      post('/api/quote', { serviceId, quantity, coupon_code: couponCode }),
+    emit: (s) => { setQuoteState(s); setErr(s.error); },
+  }), []);
+  const { quote, busy: quoteBusy } = quoteState;
+  // null = still loading, true/false = loaded. Distinguishing the
+  // loading state from "provider not configured" keeps the two
+  // empty states honest.
+  const [providerConfigured, setProviderConfigured] = useState(null);
   const [extras, setExtras] = useState({ comments: '', runs: '', interval: '' });
   const deb = useRef(null);
+  // Duplicate-submit guard: a disabled button cannot stop two
+  // form submits racing in the same tick (double Enter press).
+  const inFlight = useRef(false);
 
   useEffect(() => {
     get('/api/services').then((d) => {
       setCats(d.categories);
       setProviderConfigured(d.provider_configured);
-    }).catch(() => {});
+    }).catch(() => { setProviderConfigured(false); });
   }, []);
 
+  // Defense-in-depth: the API already merges duplicate category
+  // rows, but dedupe by normalized name here too so a duplicate
+  // label can never reach the dropdown. Canonical preference
+  // mirrors the server (canonical `cat-*` slug, then lowest id),
+  // so the same canonical row is kept and no category is shown
+  // twice.
+  const catsDeduped = useMemo(() => {
+    const seen = new Map(); // normalized name -> canonical category
+    for (const c of cats) {
+      const key = String(c.name ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const existing = seen.get(key);
+      if (!existing) { seen.set(key, c); continue; }
+      const cCanon = String(c.slug || '').startsWith('cat-') ? 0 : 1;
+      const eCanon = String(existing.slug || '').startsWith('cat-') ? 0 : 1;
+      if (cCanon < eCanon || (cCanon === eCanon && (c.id ?? 0) < (existing.id ?? 0))) {
+        seen.set(key, c);
+      }
+    }
+    return [...seen.values()];
+  }, [cats]);
+
   const allServices = useMemo(
-    () => cats.flatMap((c) => c.services.map((s) => ({ ...s, category_name: c.name, category_icon: c.icon }))),
-    [cats]
+    () => catsDeduped.flatMap((c) => c.services.map((s) => ({
+      ...s,
+      // The API payload carries category_id; fall back to the
+      // enclosing category so filtering is always correct.
+      category_id: s.category_id ?? c.id,
+      category_name: c.name,
+      category_icon: c.icon,
+    }))),
+    [catsDeduped]
   );
 
   const services = useMemo(() => {
+    // Within the selected category only; "All categories" (catId '')
+    // searches across every eligible service.
     const base = catId ? allServices.filter((s) => s.category_id === Number(catId)) : allServices;
     const q = search.trim().toLowerCase();
     if (!q) return base;
@@ -52,40 +98,69 @@ export default function OrderPage() {
     const found = allServices.find((s) => s.id === Number(id));
     setSvc(found || null);
     if (found && !catId) setCatId(found.category_id);
-    setQuote(null);
+    quoteFlow.invalidate();
+    // A quantity that is stale for the newly selected service
+    // (outside its min/max bounds) is cleared, so validation
+    // and the quote never reference an invalid value.
+    if (found && qty !== '' && (Number(qty) < found.min || Number(qty) > found.max)) setQty('');
   };
 
-  // Category change: refresh the service list immediately and clear any
-  // selected service — it may not belong to the new category, so the
-  // category and service selections always stay in sync.
+  // Category change: keep the selected service only when it still
+  // belongs to the new category (or "All categories" is selected);
+  // clear it — and any stale quote — when it is no longer valid there.
   const changeCategory = (id) => {
-    setCatId(id);
-    setServiceId('');
-    setSvc(null);
-    setQuote(null);
+    const next = id;
+    setCatId(next);
+    const stillValid = !!svc && (!next || svc.category_id === Number(next));
+    if (!stillValid) {
+      setServiceId('');
+      setSvc(null);
+      quoteFlow.invalidate();
+    }
   };
 
-  const runQuote = async () => {
-    if (!serviceId || !qty) return;
-    setErr(''); setQuoteBusy(true);
-    try {
-      const q = await post('/api/quote', { serviceId: Number(serviceId), quantity: Number(qty), coupon_code: coupon.trim() || null });
-      setQuote(q);
-    } catch (x) { setQuote(null); setErr(x.message); }
-    finally { setQuoteBusy(false); }
+  // Normalized coupon code — exactly what the quote request
+  // sends, and part of the key that ties a quote to the
+  // form values it was computed for.
+  const couponCode = coupon.trim() || null;
+
+  // Request a quote for the current inputs through the shared
+  // flow. The flow owns the monotonic request id, so an older
+  // in-flight request can never overwrite a newer request's
+  // quote, error or loading state (client/src/lib/quoteFlow.js).
+  const requestQuote = () => {
+    clearTimeout(deb.current);
+    quoteFlow.request({ serviceId, quantity: Number(qty), couponCode });
   };
 
   // Live quote whenever service/qty/coupon change (debounced).
   useEffect(() => {
     clearTimeout(deb.current);
-    if (!serviceId || !qty || Number(qty) <= 0) { setQuote(null); return; }
-    deb.current = setTimeout(runQuote, 450);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serviceId, qty, coupon]);
+    if (!serviceId || !qty || Number(qty) <= 0) { quoteFlow.invalidate(); return; }
+    deb.current = setTimeout(() => {
+      quoteFlow.request({ serviceId, quantity: Number(qty), couponCode });
+    }, 450);
+  }, [serviceId, qty, coupon, quoteFlow]);
+
+  // Clear any pending debounced quote on unmount — a timer
+  // must never fire into an unmounted component.
+  useEffect(() => () => clearTimeout(deb.current), []);
 
   const place = async (e) => {
     e.preventDefault();
+    // Refuse a duplicate submission while one is in flight.
+    if (inFlight.current) return;
     if (!svc || !link.trim() || !qty) { setErr('Choose a service, target link and quantity.'); return; }
+    // Final client-side guard: refuse a missing, stale or
+    // input-mismatched quote, or a quantity outside the
+    // service's limits. The server re-validates and re-prices
+    // everything authoritatively — the client quote is never
+    // used to charge.
+    if (!quoteMatches || !qtyInRange) {
+      setErr('Get a fresh quote for the current service, quantity and coupon before placing the order.');
+      return;
+    }
+    inFlight.current = true;
     setErr(''); setPlacing(true);
     // Type-specific extras travel with the order (e.g. Comments services take
     // a per-post URL + count; Paged/Runs services take runs + interval).
@@ -113,46 +188,69 @@ export default function OrderPage() {
       } else {
         setErr(x.message);
       }
-    } finally { setPlacing(false); }
+    } finally { setPlacing(false); inFlight.current = false; }
   };
 
-  const q = quote;
+  // A quote is usable only when it was computed for exactly
+  // the inputs currently in the form — service, numeric
+  // quantity and normalized coupon code. A quote for any
+  // other values is stale: it must not display, and it must
+  // never enable the Place Order button.
+  const quantity = Number(qty);
+  const qtyInRange = !!svc && qty !== '' && Number.isFinite(quantity)
+    && quantity >= svc.min && quantity <= svc.max;
+  const quoteMatches = !!quote
+    && quote.serviceId === Number(serviceId)
+    && quote.quantity === quantity
+    && quote.coupon === couponCode;
+  const q = quoteMatches ? quote : null;
   const preCoupon = q?.price ?? 0;
   const discount = q?.discount ?? 0;
   const finalPrice = q?.final ?? 0;
 
   if (placed) {
     return (
-      <div className="card" style={{ maxWidth: 560, margin: '0 auto', textAlign: 'center', padding: 28 }}>
-        <div className="success-hero"><Icon name="checkCircle" size={44} stroke={1.3} /></div>
-        <h2 className="page-title" style={{ justifyContent: 'center' }}>Order placed!</h2>
-        <p className="muted">Your order <span className="code">{placed.order_ref}</span> is <StatusBadge status={placed.status} />.
-          The system is already working on it.</p>
-        <div className="card" style={{ margin: '18px auto 0', textAlign: 'left' }}>
-          <div className="flex between"><span className="row-label">Service</span><span className="row-value">{placed.service_name}</span></div>
-          <div className="flex between mt"><span className="row-label">Quantity</span><span className="row-value">{placed.quantity.toLocaleString()}</span></div>
-          <div className="flex between mt"><span className="row-label">Link</span><span className="row-value inline-code" style={{ maxWidth: '55%', textAlign: 'right' }}>{placed.link}</span></div>
-          {placed.discount_inr > 0 && (
-            <div className="flex between mt"><span className="row-label">Discount</span><span className="row-value" style={{ color: 'var(--success)' }}>−{fmtInr(placed.discount_inr)}</span></div>
-          )}
-          <div className="divider" />
-          <div className="flex between"><span className="row-label">Charged</span><span className="card-value" style={{ fontSize: '1.4rem' }}>{fmtInr(placed.price_inr)}</span></div>
-        </div>
-        <div className="flex" style={{ justifyContent: 'center', marginTop: 22, flexWrap: 'wrap' }}>
-          <Link to="/orders" className="btn btn-outline"><Icon name="package" size={15} /> Track orders</Link>
-          <Link to="/order" className="btn btn-primary"><Icon name="plus" size={15} /> Place another</Link>
-        </div>
-        <div className="faint" style={{ marginTop: 16, fontSize: '0.85rem' }}>
-          Balance after order: <b style={{ color: 'var(--text)' }}>{fmtInr(user.wallet_inr - placed.price_inr)}</b>
+      <div className="anime-page">
+        <div className="card" style={{ maxWidth: 560, margin: '0 auto', textAlign: 'center', padding: 28 }}>
+          <div className="success-hero"><Icon name="checkCircle" size={44} stroke={1.3} /></div>
+          <h2 className="page-title" style={{ justifyContent: 'center' }}>Order placed!</h2>
+          <p className="muted">Your order <span className="code">{placed.order_ref}</span> is <StatusBadge status={placed.status} />.
+            The system is already working on it.</p>
+          <div className="card" style={{ margin: '18px auto 0', textAlign: 'left' }}>
+            <div className="flex between"><span className="row-label">Service</span><span className="row-value">{placed.service_name}</span></div>
+            <div className="flex between mt"><span className="row-label">Quantity</span><span className="row-value">{placed.quantity.toLocaleString()}</span></div>
+            <div className="flex between mt"><span className="row-label">Link</span><span className="row-value inline-code" style={{ maxWidth: '55%', textAlign: 'right' }}>{placed.link}</span></div>
+            {placed.discount_inr > 0 && (
+              <div className="flex between mt"><span className="row-label">Discount</span><span className="row-value" style={{ color: 'var(--success)' }}>−{fmtInr(placed.discount_inr)}</span></div>
+            )}
+            <div className="divider" />
+            <div className="flex between"><span className="row-label">Charged</span><span className="card-value" style={{ fontSize: '1.4rem' }}>{fmtInr(placed.price_inr)}</span></div>
+          </div>
+          <div className="flex" style={{ justifyContent: 'center', marginTop: 22, flexWrap: 'wrap' }}>
+            <Link to="/orders" className="btn btn-outline"><Icon name="package" size={15} /> Track orders</Link>
+            <Link to="/order" className="btn btn-primary"><Icon name="plus" size={15} /> Place another</Link>
+          </div>
+          <div className="faint" style={{ marginTop: 16, fontSize: '0.85rem' }}>
+            Balance after order: <b style={{ color: 'var(--text)' }}>{fmtInr(user.wallet_inr - placed.price_inr)}</b>
+          </div>
         </div>
       </div>
     );
   }
 
-  const showCategory = catId ? cats.find((c) => c.id === Number(catId)) : null;
+  const showCategory = catId ? catsDeduped.find((c) => c.id === Number(catId)) : null;
+
+  // Accurate empty-state messages: a category with no services, a
+  // search with no matches inside (or outside) the category, and
+  // the provider-unconfigured state are all distinct.
+  const serviceEmptyMessage = services.length === 0
+    ? (search.trim()
+        ? (catId ? 'No services match your search in this category' : 'No services match your search')
+        : (catId ? 'This category has no services' : '— Select service —'))
+    : '— Select service —';
 
   return (
-    <>
+    <div className="anime-page">
       <h1 className="page-title">New Order</h1>
       <p className="page-sub">Pick a service, drop your target link, and let the machine do the rest.</p>
 
@@ -173,14 +271,16 @@ export default function OrderPage() {
             there are many categories — the page never grows with the
             catalog. */}
         <label className="label" htmlFor="cat-select">Category</label>
-        {cats.length > 0 ? (
+        {providerConfigured === null ? (
+          <p className="faint" style={{ fontSize: '0.9rem' }}>Loading services…</p>
+        ) : cats.length > 0 ? (
           <div className="select-shell">
             <span className="select-shell-icon" aria-hidden="true">
               <Icon name={showCategory && VALID_ICONS.has(showCategory.icon) ? showCategory.icon : 'layers'} size={16} />
             </span>
             <select id="cat-select" className="select-shell-input" value={catId} onChange={(e) => changeCategory(e.target.value)}>
               <option value="">All categories · {allServices.length.toLocaleString()} services</option>
-              {cats.map((c) => (
+              {catsDeduped.map((c) => (
                 <option key={c.id} value={c.id}>{c.name} · {c.services.length.toLocaleString()} services</option>
               ))}
             </select>
@@ -189,12 +289,12 @@ export default function OrderPage() {
             </span>
           </div>
         ) : providerConfigured ? (
-          <p className="faint" style={{ fontSize: '0.9rem' }}>Loading categories…</p>
+          <p className="faint" style={{ fontSize: '0.9rem' }}>No services yet — the provider has not been synced.</p>
         ) : (
           <Empty icon="package" text="No services available — provider not configured." />
         )}
 
-        {/* Service search */}
+        {/* Service search — filters within the selected category */}
         <label className="label">Search services</label>
         <div className="input-shell">
           <Icon name="search" size={16} style={{ color: 'var(--faint)' }} />
@@ -204,23 +304,41 @@ export default function OrderPage() {
 
         <label className="label">Service</label>
         <select className="select" value={serviceId} onChange={(e) => selectService(e.target.value)}>
-          <option value="">{services.length === 0 ? '— No matching services —' : '— Select service —'}</option>
+          <option value="">{serviceEmptyMessage}</option>
           {services.map((s) => (
-            <option key={s.id} value={s.id}>{s.name} · {fmtInr(s.price_per_1k * 100)} / 1k · min {s.min.toLocaleString()}</option>
+            <option key={s.id} value={s.id}>
+              {s.provider_service_id != null ? `#${s.provider_service_id} · ` : ''}{s.name} · {fmtInr(s.price_per_1k * 100)} / 1k · min {s.min.toLocaleString()}
+            </option>
           ))}
         </select>
+
+        {/* Selected-service detail panel: every supplier-provided
+            field, with honest "Not provided" fallbacks. */}
         {svc && (
-          <div className="svc-mini-card">
-            <div>
-              <div className="row-label mb">Price / 1000</div>
-              <b style={{ fontSize: '1.25rem', color: 'var(--accent-2)' }}>{fmtInr(svc.price_per_1k * 100)}</b>
+          <div className="svc-detail">
+            <div className="svc-detail-head">
+              <div>
+                <div className="row-label mb">Selected service</div>
+                <b style={{ fontSize: '1.05rem' }}>{svc.name}</b>
+                {svc.provider_service_id != null && (
+                  <span className="badge badge-muted" style={{ marginLeft: 8 }}>ID #{svc.provider_service_id}</span>
+                )}
+              </div>
+              <span className="badge badge-b">{svc.category_name || 'Uncategorized'}</span>
             </div>
-            <div className="svc-mini-stat"><span className="row-label">Min</span><b>{svc.min.toLocaleString()}</b></div>
-            <div className="svc-mini-stat"><span className="row-label">Max</span><b>{svc.max.toLocaleString()}</b></div>
-            <div className="svc-mini-stat"><span className="row-label">Speed</span><b style={{ fontSize: '0.82rem' }}>{svc.speed_hint || 'Auto'}</b></div>
-            {svc.type && svc.type !== 'Default' && (
-              <div className="svc-mini-stat"><span className="row-label">Type</span><b style={{ fontSize: '0.82rem' }}>{svc.type}</b></div>
-            )}
+
+            {svc.description && <p className="svc-detail-desc muted">{svc.description}</p>}
+
+            <div className="svc-detail-grid">
+              <div className="svc-detail-stat"><span className="row-label">Average time</span><b>{svc.speed_hint || 'Not provided'}</b></div>
+              <div className="svc-detail-stat"><span className="row-label">Quality</span><b>{svc.quality || 'Not provided'}</b></div>
+              <div className="svc-detail-stat"><span className="row-label">Minimum</span><b>{svc.min.toLocaleString()}</b></div>
+              <div className="svc-detail-stat"><span className="row-label">Maximum</span><b>{svc.max.toLocaleString()}</b></div>
+              <div className="svc-detail-stat"><span className="row-label">Price / 1000</span><b style={{ color: 'var(--accent-2)' }}>{fmtInr(svc.price_per_1k * 100)}</b></div>
+              <div className="svc-detail-stat"><span className="row-label">Refill</span><b>{svc.refill ? 'Available' : '—'}</b></div>
+              <div className="svc-detail-stat"><span className="row-label">Cancel</span><b>{svc.cancel ? 'Available' : '—'}</b></div>
+              <div className="svc-detail-stat"><span className="row-label">Type</span><b style={{ fontSize: '0.82rem' }}>{svc.type || 'Default'}</b></div>
+            </div>
           </div>
         )}
 
@@ -231,7 +349,7 @@ export default function OrderPage() {
         <label className="label">Quantity</label>
         <div className="flex">
           <input className="input" type="number" min={svc?.min || 1} max={svc?.max}
-            value={qty} onChange={(e) => setQty(e.target.value)} placeholder={svc ? `Between ${svc.min} and ${svc.max.toLocaleString()}` : 'Quantity'} />
+            value={qty} onChange={(e) => setQty(e.target.value)} placeholder={svc ? `Between ${svc.min.toLocaleString()} and ${svc.max.toLocaleString()}` : 'Quantity'} />
         </div>
         {svc && qty && (Number(qty) < svc.min || Number(qty) > svc.max) && (
           <div className="field-error"><Icon name="alert" size={14} /> Quantity must be between {svc.min.toLocaleString()} and {svc.max.toLocaleString()}.</div>
@@ -264,7 +382,7 @@ export default function OrderPage() {
         <div className="flex">
           <input className="input" value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())}
             placeholder="e.g. WELCOME10" style={{ textTransform: 'uppercase' }} />
-          <button type="button" className="btn btn-outline" onClick={runQuote} disabled={quoteBusy}>
+          <button type="button" className="btn btn-outline" onClick={requestQuote} disabled={quoteBusy}>
             {quoteBusy ? 'Applying…' : 'Apply'}
           </button>
         </div>
@@ -275,7 +393,7 @@ export default function OrderPage() {
 
         <div className="divider" />
         <div className="stack" style={{ gap: 8 }}>
-          <div className="flex between"><span className="muted">Price</span><span>{q ? fmtInr(preCoupon) : (svc && qty ? fmtInr(Math.round(Number(qty) * svc.price_per_1k * 100 / 1000)) : '—')}</span></div>
+          <div className="flex between"><span className="muted">Price</span><span>{q ? fmtInr(preCoupon) : (svc && qty ? `≈ ${fmtInr(Math.round(Number(qty) * svc.price_per_1k * 100 / 1000))}` : '—')}</span></div>
           {discount > 0 && (
             <div className="flex between"><span className="muted" style={{ color: 'var(--success)' }}>Coupon discount</span>
               <span style={{ color: 'var(--success)' }}>−{fmtInr(discount)}</span></div>
@@ -289,7 +407,7 @@ export default function OrderPage() {
         <div className="flex" style={{ marginTop: 20, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div className="muted" style={{ fontSize: '0.9rem' }}>
             Wallet balance: <b style={{ color: 'var(--text)' }}>{fmtInr(user.wallet_inr)}</b>
-            {quote && finalPrice > user.wallet_inr && (
+            {q && finalPrice > user.wallet_inr && (
               <div style={{ marginTop: 4 }}>
                 <Link to="/deposit" className="insufficient-link">
                   <Icon name="deposit" size={14} style={{ verticalAlign: '-2px' }} />
@@ -298,11 +416,11 @@ export default function OrderPage() {
               </div>
             )}
           </div>
-          <button className="btn btn-primary" disabled={placing || !svc || !link.trim() || !qty || !quote}>
+          <button className="btn btn-primary" disabled={placing || quoteBusy || !svc || !link.trim() || !qty || !qtyInRange || !quoteMatches}>
             {placing ? 'Placing order…' : <><Icon name="zap" size={15} /> Pay & Place Order</>}
           </button>
         </div>
       </form>
-    </>
+    </div>
   );
 }

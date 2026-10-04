@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS orders (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   order_ref        TEXT UNIQUE NOT NULL,   -- public "Order ID" shown to users
   user_id          INTEGER NOT NULL REFERENCES users(id),
-  service_id       INTEGER NOT NULL REFERENCES services(id),
+  service_id       INTEGER REFERENCES services(id),   -- NULL when the service is deleted (history preserved)
   provider_id      INTEGER REFERENCES providers(id),  -- NULL after provider deletion (history preserved)
   provider_order_id TEXT,
   link             TEXT NOT NULL,

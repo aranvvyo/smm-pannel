@@ -18,7 +18,7 @@ r.get('/', (req, res) => {
   let sql = `SELECT o.id, o.order_ref, o.user_id, o.link, o.quantity, o.price_inr, o.base_cost_inr,
                     o.status, o.start_count, o.remains, o.provider_charge, o.provider_currency, o.created_at,
                     u.email, s.name AS service_name, s.refill, s.cancel
-             FROM orders o JOIN users u ON u.id=o.user_id JOIN services s ON s.id=o.service_id`;
+             FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN services s ON s.id=o.service_id`;
   const where = [];
   const args = [];
   if (status && status !== 'ALL') { where.push('o.status=?'); args.push(status); }

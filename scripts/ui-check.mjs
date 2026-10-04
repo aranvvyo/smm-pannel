@@ -55,5 +55,63 @@ check('new order uses a compact category dropdown (select), not a chip list',
 check('category dropdown keeps the "All categories" option',
   /<option value="">All categories/.test(orderPage));
 
+// --- Anime 3D hero: code-split, fallback-safe, configurable model path
+const heroScene = read('client/src/components/HeroScene.jsx');
+check('landing lazy-loads the 3D hero (code-split)',
+  /lazy\(\(\) => import\('\.\.\/\.\.\/components\/HeroScene\.jsx'\)\)/.test(landing));
+check('hero scene degrades without WebGL', heroScene.includes('webglAvailable'));
+check('hero 3D effects are user-disableable', heroScene.includes('Disable 3D'));
+check('hero model path is configurable (VITE_HERO_MODEL_URL)',
+  heroScene.includes('VITE_HERO_MODEL_URL'));
+
+// --- New Order form: category/service state correctness
+check('new order distinguishes loading from provider-unconfigured',
+  orderPage.includes('providerConfigured === null'));
+check('new order keeps a service that is still valid for the new category',
+  orderPage.includes('stillValid'));
+check('new order clears a quantity that is stale for the selected service',
+  orderPage.includes('stale for the newly selected service'));
+
+// --- New Order: stale-quote race guards.
+// The quote request protocol lives in client/src/lib/quoteFlow.js
+// — plain JS shared by the page and scripts/test-quote-race.mjs,
+// which EXECUTES the out-of-order request race. These checks
+// only verify the page delegates to it and keeps the display
+// guards; the ordering itself is covered by the async test.
+const quoteFlowSrc = read('client/src/lib/quoteFlow.js');
+check('new order page delegates its quote flow to the shared module',
+  orderPage.includes('createQuoteFlow')
+  && orderPage.includes('quoteFlow.request'));
+check('quote flow serializes requests with a monotonic request id',
+  quoteFlowSrc.includes('const id = ++reqId;'));
+check('quote flow ignores outdated responses, errors and loading updates',
+  (quoteFlowSrc.match(/if \(id !== reqId\) return;/g) || []).length >= 2
+  && quoteFlowSrc.includes('if (id === reqId) {'));
+check('quote flow tags every quote with the exact inputs it was computed for',
+  quoteFlowSrc.includes('quote = { ...q, serviceId, quantity, coupon: input.couponCode ?? null };'));
+check('quote flow abandons in-flight requests when inputs change',
+  quoteFlowSrc.includes('function invalidate()')
+  && /reqId\+\+;/.test(quoteFlowSrc));
+check('new order displays a quote only when its key matches the current form values',
+  orderPage.includes('quote.serviceId === Number(serviceId)')
+  && orderPage.includes('quote.quantity === quantity')
+  && orderPage.includes('quote.coupon === couponCode'));
+check('new order disables Place while a quote is pending, unmatched, or the quantity is out of range',
+  /disabled=\{[^}]*quoteBusy/.test(orderPage)
+  && /disabled=\{[^}]*!quoteMatches/.test(orderPage)
+  && /disabled=\{[^}]*!qtyInRange/.test(orderPage));
+check('new order place() rejects a missing or stale quote before any provider call',
+  orderPage.includes('if (!quoteMatches || !qtyInRange) {'));
+check('new order refuses a duplicate submission while one is in flight',
+  orderPage.includes('if (inFlight.current) return;'));
+
+// --- Landing data integrity + honest security copy
+const publicSrc = read('server/routes/public.js');
+check('landing services payload carries a stable row id (SQL projection + response map)',
+  publicSrc.includes('SELECT s.id, s.name') && publicSrc.includes('id: s.id,'));
+check('landing service tiles key by id (never by name)', landing.includes('key={s.id}'));
+check('landing webhook copy matches the implementation (token check + server verify)',
+  landing.includes('token-checked') && landing.includes('server-verified'));
+
 console.log(`\n${ok} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

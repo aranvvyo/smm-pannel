@@ -51,7 +51,7 @@ export const config = {
   // never from the codebase (a committed admin password would leak on GitHub):
   //   ADMIN_EMAIL_1 / ADMIN_PASSWORD_1   primary owner (also ADMIN_EMAIL short forms)
   //   ADMIN_EMAIL_2 / ADMIN_PASSWORD_2   optional second owner
-  // Emails on this list are Admirators; every other email is a Client. When no
+  // Emails on this list are Admins; every other email is a Client. When no
   // accounts are configured the instance boots with NO admins (secure default);
   // you must set these in your shell (local) or Render's environment.
   admins: adminAccountsFromEnv(),

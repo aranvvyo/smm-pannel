@@ -1,8 +1,14 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { get } from '../../api.js';
 import { useCountUp, Icon } from '../../ui.jsx';
+
+// The 3D hero is lazy-loaded: three.js + React Three Fiber are code-split
+// into their own chunk, so the homepage renders fully before any 3D code
+// downloads. WebGL/reduced-motion/model-failure fallbacks live in
+// components/HeroScene.jsx.
+const HeroScene = lazy(() => import('../../components/HeroScene.jsx'));
 
 const CAT_COLORS = {
   Instagram: '#e1306c', YouTube: '#ff0000', TikTok: '#25f4ee', Telegram: '#229ED9',
@@ -34,7 +40,7 @@ const PAYMENT_METHODS = [
 const SECURITY = [
   { icon: 'lock', title: 'Encrypted sessions', body: 'HttpOnly cookie sessions with hashed tokens — credentials never touch the browser.' },
   { icon: 'shield', title: 'No price leakage', body: 'Provider costs and API keys stay server-side. Clients only ever see the sale price.' },
-  { icon: 'checkCircle', title: 'Verified crypto', body: 'Every Apirone webhook is signature-verified and duplicate payments are rejected safely.' },
+  { icon: 'checkCircle', title: 'Verified crypto', body: 'Every Apirone webhook is token-checked and server-verified against the gateway before any credit; duplicate payments are rejected safely.' },
   { icon: 'eyeOff', title: 'Zero secrets exposed', body: 'No secrets on the frontend, server-side payment routing only.' },
 ];
 
@@ -96,6 +102,12 @@ export default function Landing() {
         <div className="container">
           <div className="nav-inner">
             <span className="logo"><span className="logo-mark"><Icon name="logo" size={18} stroke={2} style={{ color: '#fff' }} /></span>InstaSMM</span>
+            <div className="nav-links-landing">
+              <a href="#services">Services</a>
+              <a href="#how-it-works">How It Works</a>
+              <a href="#faq">FAQ</a>
+              <a href="#support">Support</a>
+            </div>
             <div className="flex" style={{ marginLeft: 'auto' }}>
               {user ? (
                 <Link className="btn btn-primary btn-sm" to={cta}>Dashboard <Icon name="arrowRight" size={15} stroke={2.4} /></Link>
@@ -110,35 +122,50 @@ export default function Landing() {
         </div>
       </nav>
 
-      {/* Hero */}
-      <section className="hero container">
-        <div className="hero-badges">
-          <span className="feature-pill">Instagram &middot; YouTube &middot; TikTok</span>
-          <span className="feature-pill">Telegram &middot; Twitter &middot; Facebook</span>
-          <span className="feature-pill"><Icon name="zap" size={14} /> Auto-delivery</span>
-        </div>
-        <h1>
-          Grow your pages.<br />
-          <span className="grad-text">Pay with crypto.</span>
-        </h1>
-        <p>
-          InstaSMM is a fully automated SMM panel — order followers, likes and views
-          in seconds, pay with Litecoin or USDT, and watch delivery happen in real time.
-        </p>
-        <div className="flex" style={{ justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <Link to={cta} className="btn btn-primary btn-lg">Start Boosting <Icon name="rocket" size={17} stroke={1.9} /></Link>
-          <Link to="/signup" className="btn btn-outline btn-lg">Create Free Account</Link>
-        </div>
-        <div className="hero-stats">
-          <Stat n={stats.services} label="Services" />
-          <Stat n={stats.clients} label="Clients" />
-          <Stat n={stats.orders} label="Orders" />
-          <Stat n={stats.completed} label="Completed" />
+      {/* Hero — copy left, 3D scene right (stacked on phones) */}
+      <section className="hero container anime-page">
+        <div className="hero-grid">
+          <div className="hero-copy">
+            <div className="hero-badges">
+              <span className="feature-pill">Instagram &middot; YouTube &middot; TikTok</span>
+              <span className="feature-pill">Telegram &middot; Twitter &middot; Facebook</span>
+              <span className="feature-pill"><Icon name="zap" size={14} /> Auto-delivery</span>
+            </div>
+            <h1>
+              Grow your pages.<br />
+              <span className="grad-text">Pay with crypto.</span>
+            </h1>
+            <p>
+              InstaSMM is a fully automated SMM panel — order followers, likes and views
+              in seconds, pay with Litecoin or USDT, and watch delivery happen in real time.
+            </p>
+            <div className="flex" style={{ justifyContent: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+              <Link to={cta} className="btn btn-primary btn-lg">Start Boosting <Icon name="rocket" size={17} stroke={1.9} /></Link>
+              <Link to="/signup" className="btn btn-outline btn-lg">Create Free Account</Link>
+            </div>
+            <div className="platform-deco" aria-hidden="true">
+              <span><Icon name="camera" size={18} /></span>
+              <span><Icon name="play" size={18} /></span>
+              <span><Icon name="music" size={18} /></span>
+              <span><Icon name="send" size={18} /></span>
+              <span><Icon name="birds" size={18} /></span>
+              <span><Icon name="thumbsUp" size={18} /></span>
+            </div>
+            <div className="hero-stats">
+              <Stat n={stats.services} label="Services" />
+              <Stat n={stats.clients} label="Clients" />
+              <Stat n={stats.orders} label="Orders" />
+              <Stat n={stats.completed} label="Completed" />
+            </div>
+          </div>
+          <Suspense fallback={<div className="hero3d-skeleton" aria-hidden="true" />}>
+            <HeroScene />
+          </Suspense>
         </div>
       </section>
 
-      {/* Popular services */}
-      <section className="section container">
+      {/* Popular services — real data from /api/landing/services */}
+      <section className="section container" id="services">
         <div style={{ textAlign: 'center', marginBottom: 8 }}>
           <h2 className="section-title">Popular services</h2>
           <p className="section-sub" style={{ margin: '0 auto' }}>A sample of what is inside — full catalog after login.</p>
@@ -148,7 +175,7 @@ export default function Landing() {
             {preview.map((s) => {
               const c = CAT_COLORS[s.category] || CAT_COLORS.default;
               return (
-                <div key={s.name} className="card hoverable service-tile">
+                  <div key={s.id} className="card hoverable service-tile">
                   <div className="flex between" style={{ marginBottom: 10 }}>
                     <span className="svc-icon" style={{ background: c + '1f', border: '1px solid ' + c + '55', color: c }}>
                       <Icon name={iconFor(s.name + s.category)} size={20} stroke={1.6} />
@@ -190,7 +217,7 @@ export default function Landing() {
       </section>
 
       {/* How it works */}
-      <section className="section container">
+      <section className="section container" id="how-it-works">
         <div style={{ textAlign: 'center', marginBottom: 8 }}>
           <h2 className="section-title">How it works</h2>
           <p className="section-sub" style={{ margin: '0 auto' }}>From sign-up to delivery in four steps.</p>
@@ -210,7 +237,7 @@ export default function Landing() {
       </section>
 
       {/* Payments */}
-      <section className="section container">
+      <section className="section container" id="payments">
         <div style={{ textAlign: 'center', marginBottom: 8 }}>
           <h2 className="section-title">Payments</h2>
           <p className="section-sub" style={{ margin: '0 auto' }}>Fast crypto deposits, credited to your INR wallet.</p>
@@ -230,7 +257,7 @@ export default function Landing() {
       </section>
 
       {/* Security */}
-      <section className="section container">
+      <section className="section container" id="security">
         <div style={{ textAlign: 'center', marginBottom: 8 }}>
           <h2 className="section-title">Built secure</h2>
           <p className="section-sub" style={{ margin: '0 auto' }}>Serious engineering behind a simple interface.</p>
@@ -247,7 +274,7 @@ export default function Landing() {
       </section>
 
       {/* FAQ */}
-      <section className="section container" style={{ maxWidth: 760 }}>
+      <section className="section container" id="faq" style={{ maxWidth: 760 }}>
         <div style={{ textAlign: 'center', marginBottom: 8 }}>
           <h2 className="section-title">Frequently asked questions</h2>
         </div>
@@ -256,8 +283,8 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="container" style={{ padding: '20px 0 48px' }}>
+      {/* CTA / support */}
+      <section className="container" id="support" style={{ padding: '20px 0 48px' }}>
         <div className="card card-gradient" style={{ textAlign: 'center', padding: '40px 20px' }}>
           <h2 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '-0.02em' }}>Ready to boost?</h2>
           <p className="muted" style={{ margin: '10px auto 22px', maxWidth: 460 }}>
@@ -290,6 +317,7 @@ export default function Landing() {
 }
 
 function fmtPrice(p) {
-  if (p >= 100) return '₹' + p.toLocaleString('en-IN');
-  return '₹' + (p / 100).toFixed(2);
+  // price_per_1k is a rupee rate per 1000 units (12.5 = ₹12.50/1k).
+  const n = Number(p) || 0;
+  return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

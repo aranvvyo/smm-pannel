@@ -64,7 +64,7 @@ function ensureColumns() {
   add('deposits', 'received_minor', 'REAL');
   add('deposits', 'tx_hash', 'TEXT');
 
-  // Unique tälté: provider order id accepted exactly once (idempotent placement).
+  // Unique constraint: provider order id accepted exactly once (idempotent placement).
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_prov_order ON orders(provider_id, provider_order_id) WHERE provider_order_id IS NOT NULL');
 
   // Withdrawals: real on-chain hash reported by the gateway (never fabricated).
@@ -91,12 +91,78 @@ function cleanupDemoProviders() {
   const demo = db.prepare("SELECT id FROM providers WHERE adapter='demo'").all();
   if (demo.length === 0) return;
   console.log('[instasmm] Cleaning up legacy demo provider(s) in production…');
+  // orders.service_id must be detachable (NULL) for history preservation —
+  // a database created by an older schema still declares it NOT NULL, which
+  // would make the detach UPDATE fail and abort the whole cleanup. Rebuild
+  // the table once (only when needed) so the cleanup can proceed.
+  ensureServiceIdNullable();
   const ids = demo.map((d) => d.id);
   const placeholders = ids.map(() => '?').join(',');
-  // Zero out foreign keys before deleting to avoid FK violations.
-  db.prepare(`UPDATE orders SET provider_id=NULL WHERE provider_id IN (${placeholders})`).run(...ids);
-  db.prepare(`DELETE FROM services WHERE provider_id IN (${placeholders})`).run(...ids);
-  db.prepare(`DELETE FROM providers WHERE adapter='demo'`).run();
+  try {
+    // Detach order history FIRST: orders keep immutable history, but
+    // the service rows they reference are removed below (foreign keys
+    // are enforced, so deleting referenced rows would otherwise crash
+    // the boot). Detached orders render with a blank service name.
+    db.prepare(
+      `UPDATE orders SET provider_id=NULL, service_id=NULL
+       WHERE provider_id IN (${placeholders})
+          OR service_id IN (SELECT id FROM services WHERE provider_id IN (${placeholders}))`
+    ).run(...ids, ...ids);
+    db.prepare(`DELETE FROM services WHERE provider_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM providers WHERE adapter='demo'`).run();
+  } catch (e) {
+    console.warn('[instasmm] Legacy demo-provider cleanup could not complete — resolve manually:', e.message);
+  }
+}
+
+// Rebuild the orders table with a NULLABLE service_id (history rows must
+// survive service deletion). No-op on databases that already allow NULL.
+function ensureServiceIdNullable() {
+  const cols = db.prepare('PRAGMA table_info(orders)').all();
+  const svc = cols.find((c) => c.name === 'service_id');
+  if (!svc || !svc.notnull) return; // already nullable — nothing to do
+  console.log('[instasmm] Migrating orders.service_id to nullable (history preservation)…');
+  const colList = cols.map((c) => c.name);
+  db.exec('PRAGMA defer_foreign_keys = ON');
+  db.exec('BEGIN');
+  try {
+    const ddl = `CREATE TABLE orders_new (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_ref        TEXT UNIQUE NOT NULL,
+      user_id          INTEGER NOT NULL REFERENCES users(id),
+      service_id       INTEGER REFERENCES services(id),
+      provider_id      INTEGER REFERENCES providers(id),
+      provider_order_id TEXT,
+      link             TEXT NOT NULL,
+      quantity         INTEGER NOT NULL,
+      price_inr        INTEGER NOT NULL,
+      base_cost_inr    INTEGER NOT NULL,
+      coupon_id        INTEGER REFERENCES coupons(id),
+      discount_inr     INTEGER NOT NULL DEFAULT 0,
+      status           TEXT NOT NULL DEFAULT 'PENDING',
+      start_count      INTEGER NOT NULL DEFAULT 0,
+      remains          INTEGER NOT NULL DEFAULT 0,
+      provider_charge  REAL,
+      provider_currency TEXT,
+      provider_meta    TEXT,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL
+    )`;
+    db.exec(ddl);
+    db.exec(`INSERT INTO orders_new (${colList.join(', ')})
+             SELECT ${colList.join(', ')} FROM orders`);
+    db.exec('DROP TABLE orders');
+    db.exec('ALTER TABLE orders_new RENAME TO orders');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, created_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_orders_provider ON orders(provider_id, status)');
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_prov_order ON orders(provider_id, provider_order_id) WHERE provider_order_id IS NOT NULL');
+    db.exec('COMMIT');
+    console.log('[instasmm] orders.service_id is now nullable.');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    console.warn('[instasmm] orders.service_id migration failed — demo cleanup aborted:', e.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +190,15 @@ function seedIfEmpty() {
   for (const [k, v] of Object.entries(config.defaultSettings)) insSetting.run(k, String(v));
 
   // 3) Demo client + coupons (account-level seed always runs)
-  insUser.run('demo@instasmm.store', hashPassword('demo123'), 'client', 'Demo User', 50000, 0, 'active', 0, now);
+  const insDemo = db.prepare(
+    `INSERT INTO users (email, password_hash, role, name, wallet_balance, total_spent_inr, status, no_profit, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`
+  );
+  // node:sqlite exposes lastInsertRowid on the RESULT of run(),
+  // not on the statement object — reading it from the statement
+  // yields undefined, and Number(undefined) = NaN binds as NULL
+  // (NOT NULL constraint violation on notifications.user_id).
+  const demoId = Number(insDemo.run('demo@instasmm.store', hashPassword('demo123'), 'client', 'Demo User', 50000, 0, 'active', 0, now).lastInsertRowid);
   const insCoupon = db.prepare(
     `INSERT INTO coupons (code, type, value, min_order_inr, starts_at, expires_at, active, usage_limit, used_count, created_at)
      VALUES (?,?,?,?,?,?,1,?,0,?)`
@@ -191,10 +265,12 @@ function seedIfEmpty() {
     }
   }
 
+  // Welcome notification goes to the DEMO CLIENT's real row id — with
+  // admin accounts seeded first, the demo client is no longer id 2.
   db.prepare(
     `INSERT INTO notifications (user_id, type, title, body, created_at)
      VALUES (?, 'admin', 'Welcome to InstaSMM', 'Your account is ready. Top up your wallet and place your first order!', ?)`
-  ).run(2, now);
+  ).run(demoId, now);
 
   console.log('[instasmm] Seed complete.');
   console.log('[instasmm]   Demo client : demo@instasmm.store / demo123');
