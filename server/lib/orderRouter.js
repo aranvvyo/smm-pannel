@@ -58,6 +58,20 @@ export async function placeOrder({ user, serviceId, link, quantity, couponCode =
   }
 
   const final = pricing.final;
+  // A zero or negative price can NEVER be ordered — regardless of how
+  // the service row came to be priced (a mispriced service must be
+  // fixed by an admin, never exploited). Without this guard a
+  // zero-priced service debits nothing (a free order) and a negative
+  // price would CREDIT the wallet while placing the order (money
+  // creation). The no-loss coupon clamp only guarantees final >= base;
+  // it cannot protect against a non-positive base itself.
+  if (!Number.isFinite(final) || final <= 0) {
+    const e = new Error('This service is mispriced and cannot be ordered. Please contact support.');
+    e.code = 'BAD_PRICE'; throw e;
+  }
+  if (quantity < 1) {
+    const e = new Error('Quantity must be at least 1.'); e.code = 'BAD_QTY'; throw e;
+  }
   if (user.wallet_balance < final) throw new InsufficientBalanceError();
 
   // STEP 2 — provider first. No wallet/DB write happens on failure.
@@ -159,9 +173,26 @@ export async function placeOrder({ user, serviceId, link, quantity, couponCode =
       throw err;
     }
     // The provider accepted the order but we could not debit the wallet
-    // or record it — release the upstream order (best effort) so it is
-    // never delivered unpaid. A cancel failure must not mask the real error.
-    try { await adapter.cancel(providerOrderId); } catch { /* best effort */ }
+    // or record it — release the upstream order so it is never delivered
+    // unpaid. The release is retried once; if the supplier still cannot
+    // cancel, the orphaned upstream order is recorded in the security
+    // audit log (the ONLY trace of an order that exists upstream but not
+    // in our database) for immediate manual review. A cancel failure
+    // must not mask the real error.
+    let released = false;
+    for (let attempt = 0; attempt < 2 && !released; attempt++) {
+      try { await adapter.cancel(providerOrderId); released = true; } catch { /* retry once */ }
+    }
+    if (!released) {
+      logSecurity(null, 'system', 'uncompensated_provider_order', 'system',
+        JSON.stringify({
+          provider_id: provider.id, provider_order_id: providerOrderId,
+          user_id: user.id, service: service.name, quantity,
+          price_inr: final, reason: String(e.message || e).slice(0, 200),
+        }));
+      console.error('[instasmm] UNCOMPENSATED upstream order — manual review required:',
+        `provider_order_id=${providerOrderId} user_id=${user.id} price_inr=${final}`);
+    }
     throw e;
   }
 

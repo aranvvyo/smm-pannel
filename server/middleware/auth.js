@@ -111,7 +111,10 @@ export function rateLimitIp(req) {
   return req.socket?.remoteAddress || 'unknown';
 }
 
-export function logSecurity(userId, email, action, ip) {
-  getDb().prepare('INSERT INTO security_logs (user_id, email, action, ip, created_at) VALUES (?,?,?,?,?)')
-    .run(userId || null, email || null, action, ip || null, Date.now());
+// `detail` (optional) carries audit context — the stated reason,
+// deposit references, amounts — for events that require one. It is
+// stored in its own column so `ip` always holds an address.
+export function logSecurity(userId, email, action, ip, detail = null) {
+  getDb().prepare('INSERT INTO security_logs (user_id, email, action, ip, detail, created_at) VALUES (?,?,?,?,?,?)')
+    .run(userId || null, email || null, action, ip || null, detail, Date.now());
 }

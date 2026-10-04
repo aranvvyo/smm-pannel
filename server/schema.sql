@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS security_logs (
   email      TEXT,
   action     TEXT NOT NULL,              -- login|failed_login|logout|ban|unban|admin_credit|...
   ip         TEXT,
+  detail     TEXT,                       -- optional audit context (reason, references)
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sec_logs ON security_logs(created_at);

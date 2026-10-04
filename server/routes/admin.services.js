@@ -57,14 +57,22 @@ r.post('/', (req, res) => {
   if (!name || !providerId || !categoryId || !Number.isFinite(providerRate)) {
     return sendErr(res, 400, 'name, category_id, provider_id and provider_rate are required.');
   }
+  // A service must have a POSITIVE cost and a minimum order of at least
+  // 1 unit: a zero/negative rate or a 0-unit minimum would allow a
+  // zero-price (or money-creating) order. Order placement also refuses
+  // non-positive prices server-side (orderRouter BAD_PRICE) — this
+  // keeps the mispriced state out of the catalog in the first place.
+  if (providerRate <= 0) {
+    return sendErr(res, 400, 'provider_rate must be a positive number.');
+  }
   const db = getDb();
   const p = db.prepare('SELECT id FROM providers WHERE id=?').get(providerId);
   const c = db.prepare('SELECT id FROM categories WHERE id=?').get(categoryId);
   if (!p || !c) return sendErr(res, 400, 'Invalid provider or category.');
   const minVal = Number(body.min ?? 1);
   const maxVal = Number(body.max ?? 999999);
-  if (!Number.isFinite(minVal) || minVal < 0 || !Number.isFinite(maxVal) || maxVal <= 0) {
-    return sendErr(res, 400, 'min and max must be valid numbers.');
+  if (!Number.isFinite(minVal) || minVal < 1 || !Number.isFinite(maxVal) || maxVal <= 0) {
+    return sendErr(res, 400, 'min must be at least 1 and max must be a valid positive number.');
   }
   const markupType = body.markup_type === 'fixed' ? 'fixed' : 'percent';
   const markupValue = Number(body.markup_value || (markupType === 'percent' ? 25 : 0));
@@ -97,11 +105,21 @@ r.patch('/:id', (req, res) => {
   const markupValue = Number(body.markup_value ?? s.markup_value);
   const overrideRate = Number.isFinite(Number(body.admin_rate)) ? Number(body.admin_rate) : null;
   const adminRate = overrideRate != null ? overrideRate : applyMarkup(providerRate, markupType, markupValue);
+  // Positive pricing is mandatory on edit too: a zero/negative provider
+  // rate or selling-rate override would enable zero-price (or
+  // money-creating) orders. Order placement refuses non-positive prices
+  // server-side as well (orderRouter BAD_PRICE).
+  if (!Number.isFinite(providerRate) || providerRate <= 0) {
+    return sendErr(res, 400, 'provider_rate must be a positive number.');
+  }
+  if (overrideRate != null && overrideRate <= 0) {
+    return sendErr(res, 400, 'admin_rate must be a positive number.');
+  }
   const quality = body.quality === undefined ? s.quality : (String(body.quality).trim() || null);
   const newMin = body.min === undefined ? s.min : Number(body.min);
   const newMax = body.max === undefined ? s.max : Number(body.max);
-  if (!Number.isFinite(newMin) || newMin < 0 || !Number.isFinite(newMax) || newMax <= 0) {
-    return sendErr(res, 400, 'min and max must be valid numbers.');
+  if (!Number.isFinite(newMin) || newMin < 1 || !Number.isFinite(newMax) || newMax <= 0) {
+    return sendErr(res, 400, 'min must be at least 1 and max must be a valid positive number.');
   }
 
   // A service must always belong to an existing category — reject

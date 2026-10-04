@@ -69,6 +69,12 @@ function ensureColumns() {
 
   // Withdrawals: real on-chain hash reported by the gateway (never fabricated).
   add('withdrawals', 'tx_hash', 'TEXT');
+
+  // Security-log detail column (see middleware/auth.js logSecurity):
+  // optional audit context — the stated reason, deposit references,
+  // amounts — for events that require one. Additive only; existing
+  // rows keep NULL and every pre-existing caller is unaffected.
+  add('security_logs', 'detail', 'TEXT');
 }
 
 // Ensure every defaultSetting key exists in the settings table (never drops
