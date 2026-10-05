@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS providers (
   adapter      TEXT NOT NULL DEFAULT 'smmpost', -- 'smmpost' (production) | 'demo' (test-only)
   api_url      TEXT,
   api_key      TEXT,
+  env_managed  INTEGER NOT NULL DEFAULT 0,  -- 1 = row is managed by the
+                                             -- THEMAINSMMPROVIDER_* env vars
+                                             -- (server/lib/managedProvider.js)
   active       INTEGER NOT NULL DEFAULT 1,
   balance      REAL,                            -- last known provider balance
   currency     TEXT NOT NULL DEFAULT 'USD',     -- provider billing currency
@@ -261,3 +264,25 @@ CREATE TABLE IF NOT EXISTS withdraw_addresses (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- Manual INR (VCGetaway) deposit workflow. VCGetaway publishes no
+-- merchant API documentation, so every INR payment is UNVERIFIED until
+-- an authorized admin verifies the actual payment. The wallet is
+-- credited the CREDIT amount (never the surcharge-inclusive total)
+-- exactly once, atomically with the ledger entry. The crypto `deposits`
+-- table is a separate flow and is untouched by this workflow.
+CREATE TABLE IF NOT EXISTS inr_deposits (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id         INTEGER NOT NULL REFERENCES users(id),
+  credit_paise    INTEGER NOT NULL,     -- wallet credit the customer requested
+  surcharge_paise INTEGER NOT NULL,     -- 10% customer surcharge
+  total_paise     INTEGER NOT NULL,     -- what the customer must pay
+  status          TEXT NOT NULL DEFAULT 'pending', -- pending|awaiting_verification|verified|denied
+  invoice_ref     TEXT,                 -- gateway invoice reference (recorded when known)
+  payment_ref     TEXT,                 -- UPI/transaction reference the admin verified
+  verified_by     INTEGER REFERENCES users(id),
+  verify_note     TEXT,
+  created_at      INTEGER NOT NULL,
+  verified_at     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_inr_deposits_user ON inr_deposits(user_id, status);

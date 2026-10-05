@@ -18,7 +18,7 @@ Settings) are required before any real money moves.
 | Layer     | Tech                                                              |
 |-----------|-------------------------------------------------------------------|
 | Backend   | Node.js 22 + Express (ESM, plain JavaScript)                      |
-| Database  | SQLite via built-in `node:sqlite` — **zero native build steps**   |
+| Database  | SQLite via built-in `node:sqlite` (default) **or PostgreSQL** via `DATABASE_URL` (Neon etc.) — both zero native build steps |
 | Frontend  | React 18 + Vite 5 SPA (served by Express on the same origin)      |
 | Auth      | HttpOnly cookie sessions (~30-day persistent), scrypt password hashes |
 | Crypto    | Apirone v2 (LTC · USDT BEP20 · USDT ERC20) with built-in simulated gateway |
@@ -45,7 +45,7 @@ That’s it. On first boot the database is created and seeded automatically with
 
 - **6 categories · 14 demo services** (Instagram / YouTube / TikTok / Telegram / X / Facebook)
 - A built-in **demo SMM provider** that simulates real order delivery (PENDING → IN_PROGRESS → COMPLETED)
-- **Demo client** — `demo@instasmm.store` / `demo123` (₹500 pre-loaded)
+- **Demo client** — `demo@instasmm.store` / `demo123` (₹500 pre-loaded **in `SMM_TEST=1` only**; a production first boot seeds this account at **₹0.00** — no free default credit)
 - **Coupons** — `WELCOME10` (10% off) · `SAVE100` (₹100 off)
 - **Admins** — see below
 
@@ -106,6 +106,23 @@ records the gateway's real transfer reference in the audit history (never a
 fabricated tx hash), and is written to the security log. The transfer key never
 leaves the server.
 
+**INR deposits (VCGetaway — manual verification workflow)** — VCGetaway publishes
+no merchant API documentation (verified 2026-10-04: hosted invoice pages with an
+"I Have Paid" claim flow only), so INR deposits follow a **safe manual workflow**
+(requests are capped at ₹1,000,000,000):
+a client requests a deposit → a **pending** record is created with the transparent
+10% customer surcharge (the wallet receives the **credit** amount, never the total);
+the customer pays the operator-issued UPI invoice (out of band); the customer's
+"I have paid" claim is **recorded** (never treated as proof — it credits nothing);
+and an **admin verifies the actual payment** before the wallet is credited —
+exactly once, atomically, with a full audit trail (`/api/deposits/inr`,
+`/api/admin/deposits/inr`). No invoice, QR code, UPI ID or reference is ever
+fabricated. Live in the UI: **Deposit → Deposit INR** (`/deposit/inr` — amount
+picker with the credit / 10% surcharge / total shown separately, then
+"I Have Paid" to record the claim) and **Admin → Deposits → INR (manual)** tab
+(verify or deny with a mandatory reason). The automated gateway flow stays
+disabled (`GATEWAY_CONNECTED = false`) until an official API contract is obtained.
+
 **Test mode (`SMM_TEST=1`)** — a self-contained simulator: creating a deposit
 keeps it **pending**, so creating an invoice is *not* a payment. The wallet is
 credited only when an explicit payment event lands (Admin → Deposits → **Confirm**,
@@ -133,22 +150,104 @@ share one origin, so no separate static host or CORS setup is needed.
    - `SESSION_SECRET` — random string (Render can generate one)
    - `ADMIN_EMAIL_1` / `ADMIN_PASSWORD_1` (+ `_2`) — owner accounts
    - `PUBLIC_BASE_URL=https://instasmm.store` — required for real Apirone webhook callbacks & QR codes
-   - (Apirone credentials and the SMM provider key are entered later in **Admin → Settings / Providers**)
-4. **Database (IMPORTANT).**
-   The panel uses **SQLite** (`node:sqlite`, one file + WAL). Render **free** instances
-   have an **ephemeral filesystem** — a default `data/instasmm.db` will be wiped on
-   every redeploy. To keep data permanently:
-   - **Recommended:** upgrade the service to a **paid plan** (`Starter` ~$7/mo),
-     add a **Persistent Disk** mounted at `/var/data` (1 GB), and set `DB_FILE=/var/data/instasmm.db`.
-     Zero code change — `DB_FILE` is already env-driven.
-   - Free only: either accept that a redeploy resets the DB, or use an external
-     SQLite-compatible host (e.g. Turso) — the latter needs a small DB-layer change.
+   - `THEMAINSMMPROVIDER_API_URL` + `THEMAINSMMPROVIDER_API_KEY` — **optional** supplier credentials (see "Environment-managed configuration" below)
+   - `APIRONE_ACCOUNT_ID` + `APIRONE_TRANSFER_KEY` — **optional** crypto-gateway credentials (same section)
+   - `APIRONE_API_URL` — Apirone base URL (default `https://apirone.com`)
+4. **Database (IMPORTANT).** Two supported backends — pick **one** before first boot:
+
+   **PostgreSQL (recommended for the free plan).** Set
+   `DATABASE_URL` to your database URL (e.g. the connection
+   string from the **Neon** dashboard — keep its
+   `?sslmode=require` parameter). The panel then runs against
+   PostgreSQL through a synchronous worker-thread bridge with
+   identical behavior, and because the database is external, a
+   redeploy never loses data — **no Persistent Disk needed**.
+   The database is initialized **fresh** from
+   `server/schema.pg.sql` on first boot: existing SQLite data
+   is **not** migrated — admins come from the
+   `ADMIN_EMAIL_*`/`ADMIN_PASSWORD_*` env vars and providers
+   are added again in **Admin → Providers** (deliberate).
+
+   **SQLite (default).** Omit `DATABASE_URL`. Render **free**
+   instances have an **ephemeral filesystem** — a default
+   `data/instasmm.db` will be wiped on every redeploy. To keep
+   data permanently: upgrade the service to a **paid plan**
+   (`Starter` ~$7/mo), add a **Persistent Disk** mounted at
+   `/var/data` (1 GB), and set `DB_FILE=/var/data/instasmm.db`.
+   Zero code change — `DB_FILE` is already env-driven.
+   Free only: either accept that a redeploy resets the DB, or
+   use an external SQLite-compatible host (e.g. Turso) — the
+   latter needs a small DB-layer change.
 5. **Custom domain** — in Render: *Settings → Custom Domains* → add `instasmm.store`
    (a subdomain like `app.instasmm.store` is safer while you keep existing site DNS)
    and `www.instasmm.store`; Render issues a Let's Encrypt TLS cert automatically
    (HTTPS is on by default).
 
 A `render.yaml` Blueprint with all of the above (minus secret values) ships in the repo.
+
+### 🐘 PostgreSQL via `DATABASE_URL`
+
+Setting `DATABASE_URL` (a `postgres://…` connection string —
+Neon, Supabase, Render Postgres, any managed PostgreSQL) swaps
+the storage layer with **zero application changes**: every
+route, lib, middleware and all money/order/payment/INR logic
+run unchanged against PostgreSQL. The app's SQLite-flavoured
+SQL is translated at the database boundary
+(`server/lib/pgDialect.js`), and a worker-thread bridge
+(`server/lib/pgSync.js`) keeps the fully synchronous
+`DatabaseSync` contract the whole codebase is written against —
+so transaction atomicity is preserved by construction: nothing
+can interleave inside a `BEGIN…COMMIT` block, exactly like a
+single SQLite connection. `pg` (node-postgres) is the only
+added dependency; the SQLite path needs nothing.
+
+- **Fresh database, deliberately.** The schema is created from
+  `server/schema.pg.sql`; **no SQLite data is migrated**. First
+  boot seeds exactly like SQLite: admin accounts from
+  `ADMIN_EMAIL_*`/`ADMIN_PASSWORD_*`, the demo client at
+  **₹0.00**, and — in production — **no provider**, until you
+  add one in Admin → Providers and sync.
+- **SSL:** if the URL contains `sslmode=require` (Neon always
+  does), TLS is used automatically.
+- **Verification:** `npm test` runs the dialect unit tests
+  (`scripts/test-pg-dialect.mjs` — no database needed) and
+  bridge/gate safety tests (`scripts/test-pg-bridge-safety.mjs`
+  — no database contacted). The full integration suite is
+  gated and runs against a scratch database it creates and
+  drops itself; if the scratch database cannot be created it
+  aborts — it never falls back to the supplied URL (and never
+  runs against one that already contains InstaMM tables):
+  ```bash
+  TEST_DATABASE_URL='postgres://user:pass@host/db?sslmode=require' \
+  PG_TEST_CONFIRM_FRESH=1 npm run test:pg
+  ```
+- **Cutover checklist (operator):** ① create the PostgreSQL
+  database, ② set `DATABASE_URL` in Render Dashboard →
+  Environment, ③ set `ADMIN_EMAIL_1`/`ADMIN_PASSWORD_1`,
+  ④ deploy — first boot creates the schema and seeds,
+  ⑤ add the SMM provider(s) in Admin → Providers and sync
+  services, ⑥ enter Apirone credentials in Admin → Settings.
+  Keep `DB_FILE` unset (or the SQLite file is ignored).
+
+### 🔑 Environment-managed configuration (survives restarts & redeploys)
+
+Two credential sets can live in Render **Dashboard → Environment** instead of being re-entered in the admin panel after every redeploy:
+
+| Variables | What they manage | Precedence |
+|---|---|---|
+| `THEMAINSMMPROVIDER_API_URL` + `THEMAINSMMPROVIDER_API_KEY` | one designated SMM supplier (DB row flagged `env_managed`) | The environment is authoritative at every boot: the row's URL/key are brought in line with the variables. Admin panel edits (name, markup, currency, active — even credentials) apply at runtime and hold until the next restart. |
+| `APIRONE_ACCOUNT_ID` + `APIRONE_TRANSFER_KEY` | Apirone deposit / withdrawal credentials | A non-blank variable wins; a blank one falls back to the value stored via **Admin → Settings** (stored values are never erased or rewritten). |
+
+Rules that always hold:
+
+- **Blank variables are a no-op** — an empty value can never erase a stored configuration.
+- The bootstrap performs **no network calls**. After a first boot, open **Admin → Providers → Sync Services** once to pull the catalog (the existing mechanism — nothing changes about how sync works).
+- Providers you create manually (different API URLs) are **never touched** by the bootstrap.
+- To run permanently on panel-only credentials: unset the variables in Render — the stored row then stays authoritative.
+- Invalid configuration (e.g. a non-https supplier URL) is rejected with a clear error that contains **no credential values**.
+- The INR gateway's **automated** flow (VCGetaway) remains disabled (`GATEWAY_CONNECTED=false`) pending official API documentation; the **manual-verification workflow** (request → claim → admin verify → credit) is active server-side — see "INR deposits (VCGetaway)" in the Payments section above.
+
+**Note on data:** environment variables manage *credentials only*. User accounts, wallets, orders, and the ledger live in SQLite — on Render they need a **Persistent Disk** (paid plan + `DB_FILE=/var/data/instasmm.db`, see step 4 above).
 
 ---
 
@@ -182,6 +281,17 @@ simulator knobs, own support channels).
 - **No-loss coupons** — discounts are clamped so the *final price never drops below
   the provider base cost*. The clamp math happens only on the server and is hidden
   from any network response.
+- **Positive-price invariant** — an order can never be placed for ₹0 or less:
+  service creation/editing rejects non-positive rates and `min < 1`, and order
+  placement itself refuses any computed final price `<= 0` (`BAD_PRICE`) **before**
+  the provider is called. The wallet debit is an atomic, conditional SQL update
+  (`WHERE wallet_balance >= ?`) inside a transaction — concurrent orders can never
+  overspend or drive a balance negative, and a failed debit rolls the whole order
+  back (releasing the upstream order, with an audit trail if the release fails).
+- **Order kill-switch** — set `ORDERS_ENABLED=0` (environment + restart) to pause
+  **new customer orders** with a clean 503 while deposits, wallet, history and the
+  admin panel keep working. Reversible; no database change. Zero-code alternative:
+  set every service to inactive in Admin → Services (reversible in the UI).
 - **No Profit Users** — admin-tagged users buy at base (0% markup) price, and get a
   single “Favourite List” notification only when tagged (never when removed).
 - Passwords hashed with scrypt; timing-safe comparison; login rate-limiting; sessions
@@ -193,7 +303,8 @@ simulator knobs, own support channels).
 
 ```bash
 npm run package      # → instasmm.zip (source, excludes node_modules/data/.env)
-npm test             # → money/coupon invariants + provider/settings/ordering regressions
+npm test             # → money/coupon invariants + provider/settings/ordering regressions + PG dialect units
+npm run test:pg      # → PostgreSQL integration invariants (gated: TEST_DATABASE_URL + PG_TEST_CONFIRM_FRESH=1)
 node scripts/smoke-test.mjs   # → end-to-end client+admin flow (needs a running server)
 ```
 

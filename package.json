@@ -9,7 +9,8 @@
     "build": "cd client && vite build",
     "start": "node server/index.js",
     "package": "node scripts/package.js",
-    "test": "node scripts/test-money.mjs && node scripts/test-regressions.mjs && node scripts/test-categories.mjs",
+    "test": "node scripts/test-money.mjs && node scripts/test-regressions.mjs && node scripts/test-categories.mjs && node scripts/test-env-config.mjs && node scripts/test-inr-gateway.mjs && node scripts/test-pg-dialect.mjs && node scripts/test-pg-bridge-safety.mjs",
+    "test:pg": "node scripts/test-pg-integration.mjs",
     "seed": "node server/db.js"
   },
   "engines": {
@@ -19,6 +20,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
+    "pg": "^8.13.1",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

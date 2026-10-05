@@ -3,21 +3,41 @@ import { mkdirSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
 import { hashPassword } from './lib/passwords.js';
+import { createPgBridge } from './lib/pgSync.js';
+import { isUniqueViolation } from './lib/pgDialect.js';
+
+// Re-exported for call sites that must treat a duplicate-key error
+// identically on both databases (e.g. admin.withdraw.js).
+export { isUniqueViolation };
 
 // ---------------------------------------------------------------------------
-// Database bootstrap. Uses the built-in node:sqlite (DatabaseSync) so there is
-// zero native dependency — installs cleanly anywhere Node 22+ runs.
+// Database bootstrap. Uses the built-in node:sqlite (DatabaseSync) so there
+// is zero native dependency — installs cleanly anywhere Node 22+ runs.
+//
+// When DATABASE_URL is set, the SAME synchronous contract is served over
+// PostgreSQL (e.g. Neon) by the worker-thread bridge in lib/pgSync.js —
+// every route, lib, middleware and test then runs unchanged against
+// PostgreSQL. The PostgreSQL path creates a FRESH database from
+// schema.pg.sql; existing SQLite data is intentionally not migrated.
 // ---------------------------------------------------------------------------
 
 let db = null;
 
 export function getDb() {
   if (db) return db;
-  mkdirSync(path.dirname(config.dbFile), { recursive: true });
-  db = new DatabaseSync(config.dbFile);
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec(readFileSync(path.join(config.rootDir, 'server', 'schema.sql'), 'utf8'));
+  const dbUrl = String(process.env.DATABASE_URL || '').trim();
+  if (dbUrl) {
+    // ── PostgreSQL via the synchronous worker-thread bridge ──
+    db = createPgBridge(dbUrl);
+    db.exec(readFileSync(path.join(config.rootDir, 'server', 'schema.pg.sql'), 'utf8'));
+  } else {
+    // ── SQLite (default, zero-dependency) ──
+    mkdirSync(path.dirname(config.dbFile), { recursive: true });
+    db = new DatabaseSync(config.dbFile);
+    db.exec('PRAGMA journal_mode = WAL');
+    db.exec('PRAGMA foreign_keys = ON');
+    db.exec(readFileSync(path.join(config.rootDir, 'server', 'schema.sql'), 'utf8'));
+  }
   ensureColumns();
   ensureDefaults();
   seedIfEmpty();
@@ -30,6 +50,7 @@ export function getDb() {
 // Each column is added only if missing, so old .db files upgrade in place.
 // ---------------------------------------------------------------------------
 function ensureColumns() {
+  if (db.isPg) { ensureColumnsPg(); return; }
   const have = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
   const add = (table, col, ddl) => { if (!have(table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); };
 
@@ -75,6 +96,58 @@ function ensureColumns() {
   // amounts — for events that require one. Additive only; existing
   // rows keep NULL and every pre-existing caller is unaffected.
   add('security_logs', 'detail', 'TEXT');
+
+  // Environment-managed SMM supplier flag (see lib/managedProvider.js).
+  // Additive only — existing rows default to 0 (admin-managed), which is
+  // exactly the pre-existing behavior.
+  add('providers', 'env_managed', 'INTEGER NOT NULL DEFAULT 0');
+}
+
+// PostgreSQL twin of ensureColumns: information_schema.columns
+// replaces PRAGMA table_info, and ADD COLUMN IF NOT EXISTS makes
+// every step idempotent. schema.pg.sql already declares every
+// column, so this is a no-op on fresh databases and only matters
+// for a PostgreSQL database created by an older schema.
+function ensureColumnsPg() {
+  const have = (table, col) => db.prepare(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = ? AND column_name = ?`
+  ).get(table, col);
+  const add = (table, col, ddl) => {
+    if (!have(table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${col} ${ddl}`);
+  };
+
+  add('providers', 'currency', 'TEXT NOT NULL DEFAULT \'USD\'');
+  add('providers', 'markup_type', 'TEXT NOT NULL DEFAULT \'percent\'');
+  add('providers', 'markup_value', 'DOUBLE PRECISION NOT NULL DEFAULT 25');
+  add('providers', 'last_sync_at', 'BIGINT');
+  add('providers', 'last_success_at', 'BIGINT');
+  add('providers', 'last_error', 'TEXT');
+
+  add('services', 'type', 'TEXT');
+  add('services', 'refill', 'BIGINT NOT NULL DEFAULT 0');
+  add('services', 'cancel', 'BIGINT NOT NULL DEFAULT 0');
+  add('services', 'quality', 'TEXT');
+
+  add('orders', 'provider_charge', 'DOUBLE PRECISION');
+  add('orders', 'provider_currency', 'TEXT');
+  add('orders', 'provider_meta', 'TEXT');
+
+  add('deposits', 'provider_event', 'TEXT');
+  add('deposits', 'confirmed_at', 'BIGINT');
+
+  add('deposits', 'amount_minor', 'DOUBLE PRECISION');
+  add('deposits', 'currency_code', 'TEXT');
+  add('deposits', 'paid_usd', 'BIGINT NOT NULL DEFAULT 0');
+  add('deposits', 'reject_reason', 'TEXT');
+  add('deposits', 'received_minor', 'DOUBLE PRECISION');
+  add('deposits', 'tx_hash', 'TEXT');
+
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_prov_order ON orders(provider_id, provider_order_id) WHERE provider_order_id IS NOT NULL');
+
+  add('withdrawals', 'tx_hash', 'TEXT');
+  add('security_logs', 'detail', 'TEXT');
+  add('providers', 'env_managed', 'BIGINT NOT NULL DEFAULT 0');
 }
 
 // Ensure every defaultSetting key exists in the settings table (never drops
@@ -124,6 +197,21 @@ function cleanupDemoProviders() {
 // Rebuild the orders table with a NULLABLE service_id (history rows must
 // survive service deletion). No-op on databases that already allow NULL.
 function ensureServiceIdNullable() {
+  if (db.isPg) {
+    // schema.pg.sql declares service_id nullable, so a database
+    // created by this schema needs nothing. A database from an
+    // older PostgreSQL schema gets the same one-time relaxation
+    // (a plain ALTER — no table rebuild is needed in PostgreSQL).
+    const row = db.prepare(
+      `SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'service_id'`
+    ).get();
+    if (!row) return;
+    if (String(row.is_nullable).toUpperCase() === 'YES') return;
+    console.log('[instasmm] Migrating orders.service_id to nullable (history preservation)…');
+    db.exec('ALTER TABLE orders ALTER COLUMN service_id DROP NOT NULL');
+    return;
+  }
   const cols = db.prepare('PRAGMA table_info(orders)').all();
   const svc = cols.find((c) => c.name === 'service_id');
   if (!svc || !svc.notnull) return; // already nullable — nothing to do
@@ -196,15 +284,20 @@ function seedIfEmpty() {
   for (const [k, v] of Object.entries(config.defaultSettings)) insSetting.run(k, String(v));
 
   // 3) Demo client + coupons (account-level seed always runs)
-  const insDemo = db.prepare(
-    `INSERT INTO users (email, password_hash, role, name, wallet_balance, total_spent_inr, status, no_profit, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?)`
-  );
+  // The demo client is a REAL account in every environment, so it must
+  // follow the same funding rule as any customer: it starts at ZERO.
+  // Only the isolated test suite (SMM_TEST=1) funds it explicitly —
+  // production must never ship free default wallet credit.
   // node:sqlite exposes lastInsertRowid on the RESULT of run(),
   // not on the statement object — reading it from the statement
   // yields undefined, and Number(undefined) = NaN binds as NULL
   // (NOT NULL constraint violation on notifications.user_id).
-  const demoId = Number(insDemo.run('demo@instasmm.store', hashPassword('demo123'), 'client', 'Demo User', 50000, 0, 'active', 0, now).lastInsertRowid);
+  const insDemo = db.prepare(
+    `INSERT INTO users (email, password_hash, role, name, wallet_balance, total_spent_inr, status, no_profit, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`
+  );
+  const demoBalance = process.env.SMM_TEST === '1' ? 50000 : 0;
+  const demoId = Number(insDemo.run('demo@instasmm.store', hashPassword('demo123'), 'client', 'Demo User', demoBalance, 0, 'active', 0, now).lastInsertRowid);
   const insCoupon = db.prepare(
     `INSERT INTO coupons (code, type, value, min_order_inr, starts_at, expires_at, active, usage_limit, used_count, created_at)
      VALUES (?,?,?,?,?,?,1,?,0,?)`
@@ -279,7 +372,13 @@ function seedIfEmpty() {
   ).run(demoId, now);
 
   console.log('[instasmm] Seed complete.');
-  console.log('[instasmm]   Demo client : demo@instasmm.store / demo123');
+  if (process.env.SMM_TEST === '1') {
+    // Credentials are printed ONLY in the isolated test environment —
+    // never to production logs.
+    console.log('[instasmm]   Demo client : demo@instasmm.store / demo123');
+  } else {
+    console.log('[instasmm]   Demo client : demo@instasmm.store (starts at ₹0.00 — no free credit)');
+  }
   console.log('[instasmm]   Admins      : see server/config.js');
   console.log('[instasmm]   Demo coupons: WELCOME10 (10%), SAVE100 (₹100 off)');
 }
