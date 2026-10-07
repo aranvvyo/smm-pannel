@@ -86,20 +86,31 @@ export function createPgBridge(connectionString) {
     const status = Atomics.load(header, 0);
     const len = Atomics.load(header, 1);
     if (status === 3) throw new Error('PostgreSQL result exceeded the 16 MB bridge buffer.');
-    if (status === 0) {
-      if (dead) throw new Error(`PostgreSQL bridge is unavailable: ${deadReason}`);
-      throw new Error('PostgreSQL bridge returned no result (invalid state).');
-    }
-    if (status !== 1) throw new Error('PostgreSQL bridge returned an invalid state.');
-    const text = new TextDecoder().decode(payload.subarray(0, len));
-    let msg;
-    try { msg = JSON.parse(text); } catch { throw new Error('PostgreSQL bridge delivered a malformed result.'); }
-    if (!msg.ok) {
-      const e = new Error(msg.error);
-      if (msg.code) e.code = msg.code;
-      throw e;
-    }
-    return { rows: msg.rows, rowCount: msg.rowCount };
+  if (status === 0) {
+    if (dead) throw new Error(`PostgreSQL bridge is unavailable: ${deadReason}`);
+    throw new Error('PostgreSQL bridge returned no result (invalid state).');
+  }
+
+  const text = new TextDecoder().decode(payload.subarray(0, len));
+  let msg;
+  try { msg = JSON.parse(text); } catch {
+    throw new Error('PostgreSQL bridge delivered a malformed result.');
+  }
+
+  if (status === 2) {
+    const e = new Error(msg.error || 'PostgreSQL query failed.');
+    if (msg.code) e.code = msg.code;
+    throw e;
+  }
+
+  if (status !== 1) throw new Error('PostgreSQL bridge returned an invalid state.');
+  if (!msg.ok) {
+    const e = new Error(msg.error || 'PostgreSQL query failed.');
+    if (msg.code) e.code = msg.code;
+    throw e;
+  }
+
+  return { rows: msg.rows, rowCount: msg.rowCount };
   }
 
   const bridge = {
