@@ -28,10 +28,22 @@ export function getDb() {
   const dbUrl = String(process.env.DATABASE_URL || '').trim();
   if (dbUrl) {
     // ── PostgreSQL via the synchronous worker-thread bridge ──
-    db = createPgBridge(dbUrl);
-    db.exec(readFileSync(path.join(config.rootDir, 'server', 'schema.pg.sql'), 'utf8'));
+    try {
+      db = createPgBridge(dbUrl);
+      const schemaPath = path.join(config.rootDir, 'server', 'schema.pg.sql');
+      const schemaSql = readFileSync(schemaPath, 'utf8');
+      console.log('[instasmm] Initializing PostgreSQL schema…');
+      db.exec(schemaSql);
+      console.log('[instasmm] PostgreSQL schema initialized successfully.');
+    } catch (err) {
+      console.error('[instasmm] CRITICAL: PostgreSQL initialization failed:', err.message);
+      throw new Error(`PostgreSQL database initialization failed: ${err.message}. DATABASE_URL is set, so SQLite fallback is disabled. Fix the database connection and restart.`);
+    }
   } else {
-    // ── SQLite (default, zero-dependency) ──
+    // ── SQLite (default, zero-dependency, ONLY in development) ──
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('DATABASE_URL is not set in production. PostgreSQL is required. Set DATABASE_URL to a valid postgresql:// connection string.');
+    }
     mkdirSync(path.dirname(config.dbFile), { recursive: true });
     db = new DatabaseSync(config.dbFile);
     db.exec('PRAGMA journal_mode = WAL');
