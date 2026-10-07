@@ -17,7 +17,6 @@ import clientAuthRoutes from './routes/client.auth.js';
 import clientServiceRoutes from './routes/client.services.js';
 import clientOrderRoutes, { quoteRouter } from './routes/client.orders.js';
 import clientWalletRoutes from './routes/client.wallet.js';
-import clientInrDepositRoutes from './routes/client.inrDeposits.js';
 import clientTicketRoutes from './routes/client.tickets.js';
 import clientNotifRoutes from './routes/client.notifications.js';
 
@@ -28,7 +27,6 @@ import adminProviderRoutes from './routes/admin.providers.js';
 import adminOrderRoutes from './routes/admin.orders.js';
 import adminCouponRoutes from './routes/admin.coupons.js';
 import { dashboardRouter, depositsRouter } from './routes/admin.finance.js';
-import adminInrDepositRoutes from './routes/admin.inrDeposits.js';
 import adminTicketRoutes from './routes/admin.tickets.js';
 import adminLogRoutes from './routes/admin.logs.js';
 import adminSettingsRoutes from './routes/admin.settings.js';
@@ -81,7 +79,6 @@ app.use('/api/orders', clientOrderRoutes);
 // INR (VCGetaway) manual deposit workflow — mounted BEFORE the
 // general wallet router so /api/deposits/inr is never captured by
 // the wallet router's /deposits/:id.
-app.use('/api/deposits/inr', clientInrDepositRoutes);
 app.use('/api', clientWalletRoutes);        // /api/wallet, /api/deposits, /api/cryptos
 app.use('/api/tickets', clientTicketRoutes);
 app.use('/api/notifications', clientNotifRoutes);
@@ -93,7 +90,6 @@ app.use('/api/admin/dashboard', dashboardRouter);
 // INR manual-verification endpoints — mounted BEFORE the general
 // deposits router so /api/admin/deposits/inr is never captured by
 // its /:id route.
-app.use('/api/admin/deposits/inr', adminInrDepositRoutes);
 app.use('/api/admin/deposits', depositsRouter);
 app.use('/api/admin/users', adminUserRoutes);
 app.use('/api/admin/services', adminServiceRoutes);
