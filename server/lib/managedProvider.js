@@ -45,7 +45,7 @@ function validManagedUrl(url) {
 // Optional `overrides` exists for isolated testing; the production caller
 // (server/index.js) passes nothing and uses the values captured in config.
 export function bootstrapManagedProvider(overrides) {
-  const { apiUrl, apiKey } = overrides || config.managedProvider;
+  const { apiUrl, apiKey } = overrides || config.managedProvider || {};
 
   // Incomplete environment configuration — do nothing at all.
   if (!apiUrl || !apiKey) {
