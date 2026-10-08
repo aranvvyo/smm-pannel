@@ -1,6 +1,6 @@
 # Master Project Audit — InstaSMM
 
-**Date:** 2026-10-04 (session 7 — category-orphan test fixture) · **Project:** `~/projects/instasmm-verify-20261003` · **Branch:** `main` (3 commits; no new commits made — per instructions)
+**Date:** 2026-10-04 (session 11 — INR deposit bug hunt & fixes) · **Project:** `~/projects/instasmm-verify-20261003` · **Branch:** `main` (3 commits; no new commits made — per instructions)
 **Scope:** full-stack audit of the Express + `node:sqlite` backend, React/Vite client, provider services, and security posture. Existing work preserved; no files deleted; payment/wallet/ledger/Apirone/INR logic untouched.
 
 ---
@@ -51,6 +51,102 @@ The user ran `npm test` after BUG-12 (their terminal works; the agent shell stay
 **Changed files this session:** `server/routes/admin.auth.js` (login handler restructure + unused `verifyPassword` import removed), `scripts/test-regressions.mjs` (harness + P4 + new per-IP test + detached-sync FK fix).
 
 **Test results (session 6):** NOT EXECUTED BY THE AGENT — the agent shell hung on `npm test` (90 s, zero output; normally takes seconds). All of §0's "NOT VERIFIED" list still requires a user-terminal run. Static traces of both fixes against the test sequences and the demo adapter (stateless `orderStatus` derives progression from the order row) are documented above.
+
+### Session 11 — INR deposit system: bug hunt & fixes (2026-10-04)
+
+**Confirmed bugs fixed:**
+- **Amount overflow (financial safety, `client/src/lib/inrPayments.js`):** `inrCreditPaise` had no upper bound — `₹1e16+` produced paise values beyond `Number.MAX_SAFE_INTEGER` (float rounding) and beyond SQLite's 64-bit INTEGER (type drift / balance corruption). Added `MAX_RUPEES = 1,000,000,000` (₹1e9 = 1e11 paise — exact in both ranges); larger requests are rejected on the client and the server. The ₹100→₹10→₹110 math is unchanged.
+- **Audit-log column misuse (`server/routes/admin.inrDeposits.js` + shared `logSecurity`):** the verify/deny security events passed the audit detail string (reason, deposit #, amount) as the `ip` argument, so the real client address was never recorded and the Admin → Audit Logs "IP" column displayed audit text. Fix is additive: new `security_logs.detail` column (`schema.sql` + in-place migration in `db.js` `ensureColumns`), `logSecurity(userId, email, action, ip, detail)` with an optional 5th parameter (every pre-existing caller — crypto deposit confirm, ban/unban, logins — is unaffected and behaves identically), and the INR routes now log the client address (`clientIp(req)`) plus the detail in its own column. The Audit Logs UI gained a Detail column and INR event labels.
+- **500 error leakage (`server/routes/admin.inrDeposits.js`):** the verify/deny handlers caught unexpected DB errors and returned the raw `e.message` to the client. The `ah` wrapper + global error handler already log and answer with a generic 500 — unexpected failures now flow through that path (the deposit transaction has already rolled back), so no internal detail leaks.
+- **Silent admin list failure (`client/src/pages/admin/InrDeposits.jsx`):** `load().catch(() => {})` swallowed API errors and showed the false "No INR deposits yet." empty state. Now shows the error with a Retry button, plus a Refresh button and a live request count.
+- **Stale preview (`client/src/pages/client/VcDeposit.jsx`):** while any deposit (even a terminal one) was open, typing a new amount did not update the credit/surcharge/total preview — the open deposit always won. A valid typed amount now previews immediately; the open/history deposit shows when nothing is entered. Claim failures also clear stale errors, and the hint + error message state the ₹1,000,000,000 maximum.
+- **Unnecessary fetch (`client/src/pages/admin/Deposits.jsx`):** the crypto deposit list was fetched on mount even when the INR tab was active. The fetch now runs only when the Crypto tab is visible and re-runs when switching back.
+- **Copy / mobile:** the Wallet subtitle no longer claims deposits are only USD; toasts respect the Android gesture-bar safe area (`env(safe-area-inset-bottom)`).
+
+**Verified sound (traced, no change needed):** claim / verify / deny all use conditional `UPDATE ... WHERE status IN (...)` with a `changes` check — verify's credit + ledger insert + status flip run inside one `BEGIN`/`COMMIT` with `ROLLBACK` on any failure, so concurrent or repeated verification can credit exactly once (the racing request gets 0 changes → 400; the I16 regression test now proves it). Ownership (`user_id=?` on every client query), admin gating (`requireAdmin` + the config email list, not just the DB role flag), router mount order (`/api/deposits/inr` before the wallet router's `/deposits/:id`; `/api/admin/deposits/inr` before `depositsRouter`), the CSRF Origin check, and notification-failure isolation (a failed notify never breaks the credit transaction) were all re-traced and are correct. Rate limiting: only login is throttled app-wide; deposit-request creation is a cheap pending-row insert, consistent with the other client mutation routes (orders, tickets) — no new throttle was added.
+
+**Tests (`scripts/test-inr-gateway.mjs`):** I2/I9 now reject excessive amounts (`1e16`, `'1e21'`, anything above `MAX_RUPEES`) and assert the exact boundary; new **I16** — two racing verifications of the same deposit: exactly one 200 + one 400, wallet credited once, exactly one ledger entry, the audit row records the admin + reason + deposit reference in the `detail` column (and asserts the detail never leaks into `ip`), and an unknown deposit id returns a clean 404. Expected: **inr-gateway 16 passed** (npm test total: **95**).
+
+**Files changed:** `client/src/lib/inrPayments.js`, `server/schema.sql`, `server/db.js`, `server/middleware/auth.js`, `server/routes/admin.inrDeposits.js`, `client/src/pages/admin/Logs.jsx`, `client/src/pages/admin/InrDeposits.jsx`, `client/src/pages/client/VcDeposit.jsx`, `client/src/pages/admin/Deposits.jsx`, `client/src/pages/client/Wallet.jsx`, `client/src/styles/global.css`, `scripts/test-inr-gateway.mjs`, `README.md`, this audit.
+
+**Test results:** NOT EXECUTED BY THE AGENT (shell blocked) — run `npm test && npm run build && git diff --check`; expected `inr-gateway: 16 passed, 0 failed` and `npm test` 95 passed / 0 failed.
+
+### Session 10 — INR gateway: invoice-flow evidence + safe manual-verification workflow (2026-10-04)
+
+**New evidence (operator-supplied HTML samples from the VCGetaway payment interface):**
+- **Invoice Created page:** invoice ID, amount in INR, a UPI QR code generated from a UPI payment URI, a UPI ID, an invoice reference, instructions to include the reference in the payment remarks, and an "I Have Paid" button.
+- **Claim flow:** the sample JavaScript POSTs `/api/notify-payment` with a `paymentData` object (`invoice_id`, `amount`, `description`, `customer_name`, `customer_email`, `callback_url`, `return_url`, `timestamp`, `signature`) and expects `{ success, redirect }`.
+- **Verification states:** "Payment Checking / Awaiting Verification" and "Payment Denied / Payment Not Verified" — payment claims await verification and can remain unpaid.
+
+**What the samples do NOT establish (per the operator's own caveat):** no official API contract. `/api/notify-payment` may belong to the sample invoice website rather than VCGetaway's merchant API; the signature algorithm is unknown; there is no documented invoice-creation endpoint, authentication scheme, status lookup, expiry, or duplicate-notification behavior; and nothing shows how OUR server could independently confirm that UPI funds were received.
+
+**Determination:** no merchant API can be confirmed. The evidence is consistent with **manually verified UPI invoice claims** (invoices issued out-of-band — dashboard or hosted page — with claims awaiting verification). Per the task rules, no endpoint, field, signature algorithm, or webhook format was invented, and none of the example customer's data (name, email, UPI ID, invoice IDs, signature, callback URL, QR code) is used anywhere in the application or tests.
+
+**Implemented — safe manual-verification workflow (gateway-agnostic, additive; Apirone crypto deposits, supplier integration, and all other wallet/order logic untouched):**
+- `server/schema.sql` — new `inr_deposits` table (credit_paise / surcharge_paise / total_paise / status / invoice_ref / payment_ref / verified_by / verify_note / timestamps). `CREATE TABLE IF NOT EXISTS` runs at every boot (`server/db.js`), so existing databases gain it in place. The crypto `deposits` table is untouched.
+- `server/lib/inrDeposits.js` (new) — the workflow core, importing the shared INR math from `client/src/lib/inrPayments.js` (single source of truth): `createInrDeposit` (pending record only — no invoice/QR/UPI data is ever fabricated), `claimInrDeposit` (records the "I have paid" claim → `awaiting_verification`; a claim is NEVER proof of payment and never credits), `verifyInrDeposit` (admin-verified: conditional status transition + wallet credit of the **CREDIT amount** — never the surcharge-inclusive total — + ledger entry + user notification, all inside one transaction; idempotent — a second verify changes nothing), `denyInrDeposit` (terminal, no credit, user notified).
+- `server/routes/client.inrDeposits.js` (new) — `POST /api/deposits/inr` (create), `GET /api/deposits/inr` (own list), `GET /api/deposits/inr/:id` (own detail), `POST /api/deposits/inr/:id/claim`. All behind `requireAuth`; ownership enforced per row.
+- `server/routes/admin.inrDeposits.js` (new) — `GET /api/admin/deposits/inr`, `GET /:id`, `POST /:id/verify` (reason ≥3 chars required — audit trail; records payment_ref/invoice_ref), `POST /:id/deny`. Behind `requireAdmin`; every verify/deny is written to `security_logs` (`verify_inr_deposit` / `deny_inr_deposit`).
+- `server/index.js` — both routers mounted **before** the general wallet/deposits routers so the `/deposits/inr` prefixes are never captured by the existing `/:id` routes.
+- `scripts/test-inr-gateway.mjs` — extended I8–I15: pending-record creation with correct math and zero crediting; invalid amounts rejected; claim recorded but never credited; admin verify credits exactly the credit amount (₹100 → wallet +₹100, never ₹110) with a ledger entry (`type='deposit'`, `ref_id`, `meta.method='inr_manual'`); idempotent re-verify; deny → no credit and never verifiable afterwards; clients get 403 on admin endpoints and 404 on other users' deposits; verify/deny require a reason.
+- README + this audit updated.
+
+**Unchanged by design:** `GATEWAY_CONNECTED` stays `false` (the automated `/deposit/inr` page flow remains a disabled scaffold); no real API calls; no sample data from VCGetaway's example pages anywhere.
+
+**Files changed:** `server/schema.sql`, `server/lib/inrDeposits.js` (new), `server/routes/client.inrDeposits.js` (new), `server/routes/admin.inrDeposits.js` (new), `server/index.js`, `scripts/test-inr-gateway.mjs`, `README.md`, `MASTER_PROJECT_AUDIT.md`.
+
+**Test fix (E8/I5 false positive, test-only):** the blanket "no vcgetaway text in server/index.js" assertion in E8 (`scripts/test-env-config.mjs`) and I5 (`scripts/test-inr-gateway.mjs`) began failing when the intentional manual INR routes — whose mount comments name VCGetaway — landed in session 10. Both checks now assert the real invariant: `GATEWAY_CONNECTED=false`; the manual routers ARE mounted at `/api/deposits/inr` and `/api/admin/deposits/inr`; and no AUTOMATED gateway route, webhook, client module, or network call exists (the sample site's `/api/notify-payment` endpoint is also asserted absent). No production code changed.
+
+**Test results:** NOT EXECUTED BY THE AGENT (shell blocked) — expected `inr-gateway: 15 passed, 0 failed` and `env-config: 10 passed, 0 failed` (npm test total: 94).
+
+**Remaining to finish the integration (needs the operator):** the official merchant integration specification — invoice creation endpoint + authentication, whether invoices are created via API or dashboard, signature generation/verification rules, payment notification/callback endpoint + trust model, how the server independently confirms UPI receipt, status lookup / expiry / duplicate-notification behavior. When it arrives, implement the documented checkout + verification flow on the server (authenticated callbacks or independent status verification, amount/currency/reference checks, idempotency, atomic wallet-ledger updates) and flip `GATEWAY_CONNECTED` only after end-to-end verification and explicit operator approval. The remaining wiring step for the manual workflow is UI (client deposit page + admin INR deposits tab) — the API is complete and tested.
+
+**Session 10 (continued) — client + admin UI for the manual workflow (2026-10-04):**
+- `client/src/pages/client/VcDeposit.jsx` — full manual-workflow deposit page (same route `/deposit/inr`, replacing the disabled scaffold): amount picker (presets + custom) with the **credit / 10% surcharge / total** always shown separately (shared math from `client/src/lib/inrPayments.js`); "Request deposit" creates a pending record only; the open-deposit card shows the per-status strip (pending → "I Have Paid" records a claim only, explicitly labeled as such; awaiting_verification; verified → credited credit amount; denied → nothing credited); history list; 8 s polling while a request is non-terminal. `GATEWAY_CONNECTED` stays `false` and `pay()` stays guarded — no VCGetaway endpoint is called.
+- `client/src/pages/admin/InrDeposits.jsx` (new) — the admin verification half: list (client, wallet credit, surcharge, total, status, created IST) + detail modal with the full breakdown; **Verify** requires a reason ≥3 chars (optional payment/invoice refs) and the server credits the wallet exactly once; **Deny** requires a reason and never credits; verified/deny notes shown from the audit trail.
+- `client/src/pages/admin/Deposits.jsx` — Crypto / INR (manual) chip switcher; the existing crypto table + reason-audited verify modal are unchanged on the Crypto tab.
+- `client/src/App.jsx` — client nav gains "Deposit INR" (the `/deposit/inr` route already existed); `client/src/pages/client/Wallet.jsx` — "Deposit in INR" button beside the crypto Deposit button.
+- All icons used exist in the shared set (`bank`, `qr`, `percent`, `check`, `coins`); every `vc-*` / `chip` / `filter-chips` class already exists in `client/src/styles/global.css`. No Apirone, supplier, webhook, or crypto-deposit code touched.
+
+**Files changed (UI):** `client/src/pages/client/VcDeposit.jsx` (rewrite), `client/src/pages/admin/InrDeposits.jsx` (new), `client/src/pages/admin/Deposits.jsx` (tab), `client/src/App.jsx` (nav link), `client/src/pages/client/Wallet.jsx` (button), `README.md`, this audit.
+
+**Test results:** NOT EXECUTED BY THE AGENT (shell blocked) — expected `npm test` 94 passed / 0 failed (money 13 + regressions 38 + categories 18 + env-config 10 + inr-gateway 15), `npm run build` PASS, `git diff --check` PASS.
+
+### Session 9 — INR gateway (VCGetaway): documentation-blocked, groundwork only (2026-10-04)
+
+**Task:** integrate the INR gateway (VCGetaway). **Blocker (verified by direct fetch, 2026-10-04):** VCGetaway publishes **no official API documentation** — `vcgetaway.site` is a marketing page distributing an Android APK (`/docs` → 404), and the developer's GitHub repo (`vishalkumarmandal7777-byte/Vc-Gateway-pro`, 1 commit) contains only `log_list.sig` — no README, no API spec. Without the contract, implementing checkout/auth/webhook/status would mean inventing endpoints, request fields, and a signature algorithm — explicitly forbidden by the task rules ("do not invent endpoints, request fields, signature algorithms, webhook formats, or response structures").
+
+**Implemented (documentation-independent groundwork only — zero payment code paths):**
+- **Shared INR money math** — `client/src/lib/inrPayments.js` (new): integer paise only, `SURCHARGE_BPS = 1000` (10% customer surcharge), `inrCreditPaise` (validate + ₹→paise; rejects zero/negative/non-numeric/non-finite), `inrSurchargePaise`, `inrTotalPaise`. The wallet is always credited the CREDIT amount, never the total. No minimum imposed (the gateway's minimum is unknown until documented).
+- **`client/src/pages/client/VcDeposit.jsx`** — refactored onto the shared helpers (duplicated inline surcharge math removed; behavior-preserving). Still a disabled scaffold: `GATEWAY_CONNECTED = false`, pay guarded, "integration pending" notice, no network calls, no wallet credit from a client-side flag.
+- **`server/config.js`** — `vcGetaway` section reading the PROPOSED names `VCGETAWAY_API_KEY` / `VCGETAWAY_API_URL` / `VCGETAWAY_WEBHOOK_SECRET` (empty defaults). Nothing consumes them — no checkout route, no webhook, no status polling exists; the section pins the names so the operator's environment is ready.
+- **`.env.example`** — the three proposed names appended with "pending official documentation" comments, no values.
+- **Tests** — new `scripts/test-inr-gateway.mjs` (I1–I7): the ₹100→₹10→₹110 math, fractional/invalid amount handling, the credit≠total invariant, `GATEWAY_CONNECTED=false` + guarded pay, no server route/webhook (source check on `server/index.js` + `server/routes/webhooks.js`), config reads the proposed names (fake `.test` credentials), and the page importing the shared math. Chained into `npm test`.
+- **README** — INR deposit status note in the Payments section.
+
+**Files changed:** `client/src/lib/inrPayments.js` (new), `client/src/pages/client/VcDeposit.jsx` (refactor), `server/config.js` (vcGetaway section), `.env.example`, `scripts/test-inr-gateway.mjs` (new), `package.json` (test chain), `README.md`, this audit.
+
+**Test results:** NOT EXECUTED BY THE AGENT (shell blocked) — expected `inr-gateway: 7 passed, 0 failed` (npm test total: 86).
+
+**To unblock (requires the operator):** obtain VCGetaway's official API documentation — base URL, authentication scheme, checkout/payment-creation endpoint + request/response format, webhook signature algorithm, transaction-status endpoint, minimum amount, refund/cancel behavior. Then implement server-side: checkout creation → status polling → **server-verified webhook** → atomic, idempotent crediting of the CREDIT amount (never the total) inside a transaction, with replay/forgery/amount-mismatch protection. `GATEWAY_CONNECTED` stays false until the flow is verified end-to-end and the operator explicitly authorizes enabling it.
+
+### Session 8 — environment-managed configuration (2026-10-04)
+
+**Root cause of the live "Provider not configured" / "Crypto payments are not configured" symptoms:** supplier and Apirone credentials lived only inside the SQLite file (`providers` / `settings` tables). Render's free plan has an ephemeral filesystem, so every redeploy wiped `data/instasmm.db` — and with it both configurations. Not caused by env vars not being read (none existed), DB-over-env precedence, one-time initialization, missing runtime sync, or a provider/URL mismatch.
+
+**Implemented (approved plan, Parts A–D):**
+- **Supplier env bootstrap** — `THEMAINSMMPROVIDER_API_URL` + `THEMAINSMMPROVIDER_API_KEY` (both non-blank): at server boot (`server/index.js`, after `getDb()`) `bootstrapManagedProvider()` (new `server/lib/managedProvider.js`) ensures exactly one provider row flagged `env_managed=1`: updates the designated row, adopts a stored row with the same `api_url`, or creates one (adapter `smmpost`, USD, 25% markup — schema defaults). **No network calls, no auto-sync, no auto-verification, no orders** — the catalog is still pulled only via Admin → Providers → Sync Services. Blank variables = complete no-op (stored config never erased). Non-https URL = safe error containing no credential values. Admin-created providers (other URLs) are never touched.
+- **Precedence (documented in README → "Environment-managed configuration"):** env is authoritative for the designated provider at every boot; admin panel edits apply at runtime and hold until the next restart; to run panel-only permanently, unset the env vars.
+- **Apirone env precedence** — `server/lib/apirone.js` `apironeCreds()`: non-blank `APIRONE_ACCOUNT_ID` / `APIRONE_TRANSFER_KEY` win; blank falls back to the settings table (Admin → Settings), which is never rewritten. All existing safeguards unchanged: live mode still requires real credentials, production still refuses fake invoices, webhook crediting still re-verifies server-side against the invoice-info endpoint, withdrawal/ledger/refund logic untouched.
+- **Schema change (additive, justified):** `providers.env_managed INTEGER NOT NULL DEFAULT 0` (`server/schema.sql` + in-place migration in `server/db.js` `ensureColumns()`). Default 0 = every pre-existing row stays admin-managed — exactly the prior behavior. Required to distinguish the env-managed row from admin-created rows so restarts are idempotent and duplicates are impossible (also guarded by the unique index on `(provider_id, provider_service_id)`).
+- **Tests** — new `scripts/test-env-config.mjs` (10 tests, E1–E9: single env-managed provider; masked API responses; idempotent restart; catalog/category availability via the client router; blank-env no-op; env authority + other-provider isolation; invalid-URL safe failure without credential leakage; Apirone precedence incl. never-erasing stored settings; INR gateway disabled; idempotent re-sync). Fake credentials only (unresolvable `.test` hosts); zero network calls. Chained into `npm test` (`package.json`).
+- **INR gateway — BLOCKED (not implemented):** the task-named artifacts (`inrFee.js`, `inrGateways/`, `inr_payments`) do not exist in this project; the only scaffold is `client/src/pages/client/VcDeposit.jsx`. The scaffold's provider is "VC Payment Gateway" (vcgetaway.site) — re-verified 2026-10-04 by direct fetch: marketing page + Android APK only, **no published API documentation** (no checkout/QR endpoint, auth scheme, webhook signature spec, status endpoint, or API version). Per the safety rules no endpoints/auth/webhook formats were invented; `GATEWAY_CONNECTED` remains `false`. Blocked on the operator supplying the gateway's official API documentation.
+
+**Files changed:** `server/config.js` (managedProvider section; apirone comment), `server/schema.sql` (env_managed column), `server/db.js` (migration), `server/lib/managedProvider.js` (new), `server/index.js` (boot call), `server/lib/apirone.js` (apironeCreds precedence), `scripts/test-env-config.mjs` (new), `package.json` (test chain), `README.md` (env vars + env-managed configuration section).
+
+**Test results:** NOT EXECUTED BY THE AGENT (shell blocked) — run `npm test && npm run build` in the user terminal; expected `env-config: 10 passed, 0 failed`.
+
+**Render steps still required (user action — no infrastructure changed by the agent):** paid plan + Persistent Disk at `/var/data` + `DB_FILE=/var/data/instasmm.db`; set `THEMAINSMMPROVIDER_API_URL`, `THEMAINSMMPROVIDER_API_KEY`, `APIRONE_ACCOUNT_ID`, `APIRONE_TRANSFER_KEY` in Dashboard → Environment; after first boot, Admin → Providers → Sync Services once.
 
 ### Session 7 — user-run category regressions: invalid test fixture fixed (2026-10-04)
 
@@ -423,3 +519,447 @@ changed.
 2. `git diff --check` (whitespace) unexecuted — edits were made with consistent 2-space indentation and no obvious trailing whitespace, but this is eyeballed, not verified.
 3. `npm run build` (Vite) unexecuted — JSX changes are syntactically self-consistent on re-read, but a build has not confirmed them.
 4. Residual recommendations (not changed — low risk / out of scope): `notifications.user_id` has no FK (implicit `0`-broadcast semantics); `security_logs`/`notifications` grow unbounded (add retention prune); confirm `SESSION_SECRET` is set in production (config default is dev-only).
+
+---
+
+## 10. Session 12 — PRODUCTION INCIDENT: zero-balance order (2026-10-04)
+
+**Report:** a real customer received/placed a service order without making a
+deposit. Investigation was read-only; no production data was modified, no
+database was accessed by the agent (the agent shell is blocked and §A rules
+forbid guessing the DB location), nothing was deployed, committed or pushed.
+
+### Order-creation surface traced (complete)
+`POST /api/orders` → `placeOrder()` (`server/lib/orderRouter.js`) is the
+**only** order-creation path in the codebase. Admin routes expose list /
+cancel / refill only (`server/routes/admin.orders.js`) — no manual order
+creation exists. Quote (`POST /api/quote`) and the client catalog
+(`GET /api/services`) are display-only; all pricing is server-computed
+(`computePricing`), the frontend can never dictate a price. Registration
+inserts `wallet_balance = 0` (`client.auth.js`). Admin manual adjustment
+refuses a negative result (`server/lib/wallet.js`).
+
+### Verified SOUND (no change)
+- **Atomic conditional debit:** `UPDATE users SET wallet_balance = wallet_balance - ? … WHERE id = ? AND wallet_balance >= ?` — the live row is evaluated inside the write; the whole `BEGIN…COMMIT` block is synchronous on the single shared connection, so concurrent requests cannot interleave (the existing race test proves exactly-3-of-5 succeed with a 3-order balance, final balance exactly 0).
+- **Provider-first ordering:** upstream failure → no debit, no order row (test-covered).
+- Units: integer INR paise throughout; `balance_after` is re-read live after the debit; ledger + order + coupon consumption share one transaction (rollback-safe, test-covered); duplicate provider order ids are refused by a unique index.
+
+### CONFIRMED BUGS (fixed locally this session)
+1. **Zero / negative price orders (the incident defect class).**
+   `placeOrder`'s only balance gate was `user.wallet_balance < final`.
+   A service priced at `provider_rate: 0` produced `final = 0` → **free
+   order** (debit of 0 succeeds at any balance ≥ 0). A **negative** rate
+   produced `final < 0` → the conditional debit `wallet_balance - final`
+   **increased** the wallet — money creation plus a free order. Enablers:
+   `admin.services.js` accepted `provider_rate` 0/negative on create
+   (`Number.isFinite` only), accepted any finite `admin_rate` override on
+   edit (including 0/negative), and accepted `min: 0` (→ quantity 0 →
+   price 0). The no-loss coupon clamp guarantees only `final >= base` —
+   it cannot protect a non-positive base.
+   **Fix:** (a) `placeOrder` now rejects `!Number.isFinite(final) ||
+   final <= 0` with `BAD_PRICE` **before** the provider is ever called,
+   and rejects `quantity < 1`; (b) `admin.services.js` create **and**
+   edit now require `provider_rate > 0`, `admin_rate > 0` (when
+   overridden) and `min >= 1` (a rejected edit leaves stored pricing
+   untouched — fail-closed).
+2. **Free default wallet credit in production.**
+   `seedIfEmpty` seeded the demo client with `wallet_balance = 50000`
+   (₹500) in **every** environment and printed its password
+   (`demo@instasmm.store / demo123`) to the boot log. Production must
+   ship no free credit. **Fix:** the demo client starts at **₹0.00** in
+   production; only `SMM_TEST=1` funds it (the test fixture), and
+   credentials are printed only under `SMM_TEST=1`.
+3. **Silent uncompensated upstream order.**
+   The provider order is placed **before** the wallet transaction (by
+   design — never charge for an undeliverable order). If the transaction
+   then fails, the compensating upstream `cancel` was best-effort with
+   its failure **swallowed** — a failed cancel left an unpaid, undelivered
+   upstream order with no local record and no alert. **Fix:** the release
+   is retried once; if it still fails, the orphan is written to
+   `security_logs` as `uncompensated_provider_order` (provider order id,
+   user, service, price) plus a `console.error` — the ops surface for
+   manual review. The original error is still rethrown (402/400 mapping
+   preserved).
+
+### Kill-switch (reversible, NOT activated — requires approval)
+`ORDERS_ENABLED=0` (env + restart) makes `POST /api/orders` answer
+`503 ORDERS_PAUSED` while deposits, wallet, history and admin keep
+working — no DB change, no site-wide outage. Zero-code alternative: set
+services inactive in Admin → Services (reversible in the UI). **Neither
+was activated** — both are production changes requiring explicit approval.
+
+### Determination of the affected order — PENDING (read-only SQL for the operator)
+The agent cannot safely read the production DB, so the exact path is NOT
+guessed. Run read-only against the production database to discriminate:
+```sql
+-- Path 1 (mispriced service): order at zero/negative price
+SELECT order_ref, user_id, price_inr, base_cost_inr, discount_inr, status, created_at
+FROM orders WHERE price_inr <= 0 ORDER BY created_at DESC;
+-- Path 2 (free seed credit): demo account or a credit with no deposit/admin source
+SELECT user_id, type, amount_inr, balance_after, created_at FROM transactions
+WHERE type IN ('admin_credit','deposit') ORDER BY created_at DESC LIMIT 50;
+SELECT email, wallet_balance FROM users WHERE email = 'demo@instasmm.store';
+-- Path 3 (uncompensated upstream order): no local row, delivery happened upstream
+SELECT * FROM security_logs WHERE action = 'uncompensated_provider_order' ORDER BY created_at DESC;
+SELECT last_error, last_success_at FROM providers;
+```
+Then cross-check the customer's ledger: a missing `order`-type debit for
+the order's `order_ref` proves the wallet was never charged.
+
+### Tests added (`scripts/test-regressions.mjs`, section P5)
+- zero-priced service → `BAD_PRICE` before any provider call (provider
+  `last_success_at`/`last_error` provably untouched), no debit, no order
+  row, no ledger row;
+- negative selling rate → `BAD_PRICE`, wallet unchanged (no money creation);
+- admin API rejects `provider_rate <= 0`, `admin_rate <= 0` override and
+  `min < 1` on create **and** edit (stored pricing survives a rejected edit);
+- upstream order whose release-cancel fails → `InsufficientBalanceError`
+  **and** exactly one `uncompensated_provider_order` audit row carrying the
+  provider order id (proved with a dedicated `boom` adapter whose `cancel`
+  always throws);
+- `ORDERS_ENABLED=0` → `503 ORDERS_PAUSED`, nothing charged, and the
+  endpoint recovers when the flag is cleared;
+- SMM_TEST demo client retains its explicit test funding (fixture guard).
+Concurrent overspend protection was already proven by the existing race
+test (P3) and is unchanged.
+
+**Files changed (session 12 incident):** `server/lib/orderRouter.js`,
+`server/routes/admin.services.js`, `server/db.js`, `server/routes/client.orders.js`,
+`scripts/test-regressions.mjs`, `README.md`, `MASTER_PROJECT_AUDIT.md`.
+**Not executed by the agent (shell blocked):** `npm test`, `npm run build`,
+`git diff --check` — expected: 101/101 (money 13 + regressions 44 +
+categories 18 + env-config 10 + inr-gateway 16), build PASS, diff-check PASS.
+**Production status: NOT fixed until verified** — the fixes are local only;
+the incident determination SQL above must be run, and the fixes must pass
+the full suite in a working shell before any deploy.
+
+---
+
+## 11. Session 13 — PostgreSQL migration (`DATABASE_URL`, dual-driver)
+
+**Task:** migrate InstaSMM to the operator's existing Neon PostgreSQL
+project, driven by a `DATABASE_URL` environment variable, preserving admin
+login, provider configuration, wallet/order consistency and the existing
+API behavior. **Constraints honored:** no data is migrated or copied from
+SQLite (the PostgreSQL database is initialized fresh, deliberately); no
+connection to or write against the live Neon database was made by the
+agent; no Render environment variable was changed; nothing was committed,
+pushed or deployed; payment/Apirone/INR gateway logic is untouched (only
+mechanical DB-layer adaptation, see below); the local zero-balance-incident
+fixes (§10) are preserved.
+
+**Architecture — synchronous worker-thread bridge (chosen over the
+originally sketched async driver).** The entire codebase (every route,
+lib, middleware and all 13 test scripts) is written against the fully
+synchronous `node:sqlite` `DatabaseSync` contract. Converting ~500 call
+sites to async blind (the agent shell is blocked — no test runs) puts
+money paths at extreme risk. Instead:
+
+- `server/lib/pgSync.js` (new) — `createPgBridge(connectionString)`
+  returns an object with the **identical** `exec` /
+  `prepare().get/all/run` contract as `DatabaseSync`. Each call posts
+  the statement to a worker thread and blocks the main thread
+  (`Atomics.wait` on a `SharedArrayBuffer`, 60 s timeout). Because
+  nothing else can run on the main thread while it blocks, statements
+  inside a `BEGIN…COMMIT` block execute back-to-back with no
+  interleaving — **transaction atomicity is preserved by
+  construction**, the same guarantee a single SQLite connection
+  gives. No route/lib/middleware change is required, and the five
+  transaction sites (`orderRouter.placeOrder`, `orderRouter.cancelOrder`,
+  `apirone.creditDeposit`, `inrDeposits.verifyInrDeposit`,
+  `wallet.adminAdjustBalance`) were verified line-by-line to be fully
+  synchronous between `BEGIN` and `COMMIT` (their `await`s sit outside
+  the transaction or after `ROLLBACK`).
+- `server/lib/pgWorker.js` (new) — the worker owns the single
+  node-postgres `Client` (`connect_timeout: 15`, explicit
+  `ssl:{rejectUnauthorized:false}` when the URL carries
+  `sslmode=require|verify-ca|verify-full` — node-postgres ignores
+  `sslmode` inside connection strings). `pg.types` INT8/NUMERIC
+  parsers convert `COUNT(*)`/`SUM()` to JS numbers (PG returns int8
+  as strings). Delivery is the SAB header `[status, length]` + JSON
+  payload. Neon reconnect: a connection error **outside** any
+  transaction drops the client and retries the statement **once**;
+  inside a transaction the error propagates (the caller's ROLLBACK
+  path handles it; `txDepth` is tracked from the SQL text).
+  BEGIN/COMMIT/ROLLBACK are never retried (a COMMIT whose response
+  was lost must not be re-run).
+- `server/lib/pgDialect.js` (new, pure) — SQL translation:
+  `INSERT OR IGNORE` → `INSERT … ON CONFLICT DO NOTHING`;
+  `?` → `$n` via a scanner that skips string literals (incl. `''`
+  escapes), quoted identifiers and comments; `LIKE` → `ILIKE`
+  (SQLite's LIKE is ASCII-case-insensitive, PG's is not);
+  auto-appended `RETURNING id` on INSERTs into the 15 id-bearing
+  tables so `run().lastInsertRowid` works; `isPragma` (PRAGMAs are
+  no-ops on the PG path); `isUniqueViolation` (SQLSTATE 23505 or
+  either message form, so both drivers behave identically).
+- `server/schema.pg.sql` (new) — faithful port of `schema.sql`:
+  `INTEGER PRIMARY KEY AUTOINCREMENT` → `BIGINT GENERATED ALWAYS AS
+  IDENTITY PRIMARY KEY` (**every** integer column is BIGINT — PG's
+  INTEGER is 32-bit and epoch-ms timestamps / INR-paise money values
+  overflow it), `REAL` → `DOUBLE PRECISION`, no PRAGMAs, all
+  columns the SQLite `ensureColumns` migration adds are declared
+  inline, same indexes incl. the partial unique
+  `idx_orders_prov_order`.
+- `server/db.js` — `getDb()` stays synchronous; `DATABASE_URL` set →
+  bridge + `schema.pg.sql`, unset → the SQLite path byte-identical.
+  `ensureColumns()` / `ensureServiceIdNullable()` have PostgreSQL
+  twins (`information_schema.columns`, `ADD COLUMN IF NOT EXISTS`,
+  `ALTER TABLE … DROP NOT NULL`). Re-exports `isUniqueViolation`.
+- `server/routes/admin.withdraw.js` — the **only** route edit: the
+  duplicate-submission check now uses `isUniqueViolation(ins)`
+  (PostgreSQL's message is lowercase "duplicate key value violates
+  unique constraint"; SQLite's is "UNIQUE constraint failed").
+  `orderRouter.js`'s `/idx_orders_prov_order|UNIQUE/` regex still
+  matches both drivers' messages — untouched (money path).
+- `scripts/test-pg-dialect.mjs` (new) — ~25 pure unit tests of the
+  translator (no database, no `pg` import), chained into `npm test`.
+- `scripts/test-pg-integration.mjs` + `.child.mjs` (new, gated) —
+  runs only with `TEST_DATABASE_URL` **and** `PG_TEST_CONFIRM_FRESH=1`.
+  The parent creates a uniquely named scratch database
+  (`instasmm_pg_test_<unique>`), spawns the child with
+  `DATABASE_URL=<scratch>`, `SMM_TEST=1`, then **drops** it. If
+  `CREATE DATABASE` is not permitted it falls back to using
+  `TEST_DATABASE_URL` directly — only after verifying that database
+  is empty (no `users` table) — and warns that the tables remain.
+  It never runs against a database that already contains InstaMM
+  tables. The child boots the real app and asserts ~20 invariants
+  mirroring the SQLite suite: seeding, admin login via the real
+  router, provider create + masking, client catalog, ILIKE search,
+  numeric aggregate types, ON CONFLICT upsert, real 23505 detection,
+  multi-statement exec, explicit ROLLBACK, order placement + ledger,
+  provider-failure no-loss, concurrent double-spend, coupon
+  atomicity, `creditDeposit` idempotency, the INR verify flow
+  (credit amount, never the total) + idempotency, and admin wallet
+  adjustments.
+- `package.json` — `pg` `^8.13.1` added to dependencies (**not
+  installed by the agent — run `npm install`**), `test` chain gains
+  `test-pg-dialect.mjs`, new `test:pg` script.
+- Docs: `README.md` (stack table, deploy step 4, new "PostgreSQL via
+  `DATABASE_URL`" section with cutover checklist, packaging),
+  `.env.example`, `render.yaml` (comments only — no env var was
+  added to the service), this audit.
+
+**Payment/INR code untouched:** `server/lib/apirone.js`,
+`server/lib/inrDeposits.js`, `server/lib/wallet.js`,
+`server/lib/orderRouter.js` and all payment routes are unmodified —
+the only change they see is the DB dialect at the boundary.
+
+**NOT executed by the agent (shell blocked; `pg` not installed):**
+`npm install`, `npm test`, `npm run build`, `git diff --check`, and
+the gated PG suite. Expected: `npm test` 101 + ~25 dialect tests
+passed / 0 failed, `npm run build` PASS, `git diff --check` PASS.
+The PostgreSQL path has **never been executed** — it is verified by
+construction and by the pure dialect tests only until the operator
+runs the gated suite against a scratch database.
+
+**Remaining risks (to verify in the operator terminal):** the
+`pg` package must be installed (`npm install`); the gated suite must
+be run against a scratch database before any cutover
+(`TEST_DATABASE_URL='postgres://…' PG_TEST_CONFIRM_FRESH=1 npm run test:pg`);
+Neon's suspended-compute reactivation is covered by the reconnect
+logic but only exercised live; on the free Render plan, if
+`CREATE DATABASE` is refused by Neon, run the suite in the
+verified-empty-database fallback mode.
+
+---
+
+## 12. Session 14 — pre-integration safety fixes (2026-10-04)
+
+Minimal local fixes required before running the gated PG suite,
+per the read-only safety review. Supersedes the final line of
+Session 13's risk list: the direct/fallback mode it mentions
+was REMOVED in this session.
+
+**Fix 1 — direct/fallback mode removed (`scripts/test-pg-integration.mjs`).**
+If `CREATE DATABASE` fails the parent now ABORTS (exit 1,
+nothing was run). Before: it probed for `public.users` and, if
+absent, ran the whole suite against `TEST_DATABASE_URL` itself,
+leaving the schema + test data behind. After: the suite runs
+ONLY against its own scratch database; the supplied URL (and
+the ambient `DATABASE_URL`, which the spawn overwrites
+explicitly) can never be used. Also added an early
+`postgres://` protocol check before any connection is
+attempted — the value itself is never printed (credentials).
+
+**Fix 2 — gate clarified.** The double gate
+(`TEST_DATABASE_URL` + `PG_TEST_CONFIRM_FRESH=1`) is unchanged
+in behavior and now documented in the header; usage text and
+abort messages were tightened. No connection string or
+credential is printed anywhere in the suite.
+
+**Fix 3 — stale-response race after the 60s timeout
+(`server/lib/pgSync.js`) — fixed FAIL-CLOSED.** The
+shared-buffer header carries no request id, so a response that
+arrives after the 60s `Atomics.wait` timeout could previously
+have been misread as the result of a LATER query (the next
+`querySync` resets the header and would return immediately
+with the stale payload). Fix: the bridge now HALTS on the
+first timeout (`timedOut` flag, set before the throw) and
+refuses every further query with a clear error — a late
+response can never be mistaken for a new result, because no
+new query is ever posted. The timeout error now reports the
+configured milliseconds. `QUERY_TIMEOUT_MS` is overridable via
+`PG_QUERY_TIMEOUT_MS` (default 60 s unchanged) so the safety
+test can exercise the path. Trade-off (deliberate, money-path
+safe): one 60 s timeout halts the bridge until the process is
+restarted. FULL single-query recovery would need a request-id
+protocol (a 3rd header Int32: the main thread stamps a
+per-request id, the worker echoes it, the main thread waits
+until the id cell matches, the worker zeroes the status cell at
+delivery start, plus a worker-side cancel set so timed-out
+requests are never delivered) — designed but NOT implemented:
+it cannot be verified without a live database in this
+environment (agent shell blocked), and the fail-closed fix
+already eliminates the hazard class.
+
+**Fix 4 — focused safety tests (`scripts/test-pg-bridge-safety.mjs`, new, chained into `npm test`).**
+Five tests, none of which contacts a database: three spawn the
+gated parent with a gate missing (must SKIP with exit 0 before
+`pg` is imported or any connection is opened); one asserts
+`createPgBridge` rejects empty/non-postgres URLs; one points
+the bridge at a dummy TCP listener (accepts, never speaks the
+PG protocol) and asserts the query throws on the shortened
+timeout AND the next query fails fast with the halt error.
+
+**NOT executed by the agent (shell blocked):** `npm test`,
+`node scripts/test-pg-bridge-safety.mjs`, `git diff`,
+`git diff --check`. Expected: `npm test` = 132 passed
+(127 + 5 new) / 0 failed; build and diff-check unchanged.
+Untouched: `server/lib/pgWorker.js` (the bridge protocol is
+unchanged — that is the point of the fail-closed fix),
+`server/lib/orderRouter.js`, all payment/INR/provider logic,
+Render settings, and every pre-existing modification.
+
+---
+
+## 13. Session 15 — integration-test cleanup hardening (2026-10-04)
+
+Follow-up hardening of `scripts/test-pg-integration.mjs`
+(operator review, before the first live connection). No
+application, payment/INR/provider, SQLite, or Render
+changes; the INR automated gateway stays disabled.
+
+**Issues found & fixed (all in
+`scripts/test-pg-integration.mjs`):**
+1. **Unbounded maintenance operations** — the setup
+   `CREATE DATABASE` query and the cleanup
+   `DROP DATABASE` query had no timeout. Both are now
+   bounded (`withTimeout`: CREATE 30 s; overall cleanup
+   budget 45 s including the ≤15 s connect); on timeout
+   the operation is abandoned and its client is closed
+   fire-and-forget, so no path can hang the suite.
+   `maintenance.end()` / `cleaner.end()` are also
+   fire-and-forget (the process exits right after).
+2. **Signal-during-CREATE race** — a SIGINT/SIGTERM
+   arriving while `CREATE DATABASE` was in flight could
+   drop before the create landed (orphaning the scratch
+   DB) and could let the main flow spawn the child after
+   cleanup. Fixes: a `createInFlight` flag — cleanup waits
+   ≤5 s for the CREATE to settle before dropping; and the
+   main flow checks `interrupted` and stops BEFORE
+   spawning the child.
+3. **Child-exit listener race in cleanup** — if the child
+   died between the `exitCode` check and the listener
+   registration, cleanup would hang forever. Fixed by
+   attaching the listener first, then checking `exitCode`
+   (SIGKILL after the 5 s grace guarantees the event).
+4. **Maintenance URL in the child environment** — the
+   spawn spread `...process.env`, so the maintenance
+   `TEST_DATABASE_URL` reached the child (inert, but
+   against the "child sees only the scratch URL" rule).
+   The gate variables are now deleted from the child env,
+   and `DATABASE_URL` is passed as an explicit string
+   (`URL.toString()` — a URL object is not a valid env
+   value).
+5. **Unguarded URL parse** — `new URL(TEST_DB)` is now
+   wrapped; a parse failure aborts with a message that
+   never echoes the connection string.
+6. **Connect timeout overridable**
+   (`PG_TEST_CONNECT_TIMEOUT_MS`, default 15 s) so the
+   safety tests can exercise timeout/signal paths in
+   milliseconds.
+
+**New database-free tests (`scripts/test-pg-bridge-safety.mjs`,
+now SIX):** the halted-bridge assertion extends to
+`exec()`; and a SIGTERM test spawns the integration
+parent against a local dummy TCP listener (no database
+contacted), signals it during setup, and asserts the
+handler runs, the parent exits on its own within 15 s
+(never hangs), and it fails closed (exit 1 or 143 —
+never spawning the child). NOT exercised (requires a
+live database): the child-kill path, the successful
+DROP, and the CREATE-settle wait.
+
+**Agent shell still blocked** — the changed files were
+NOT executed by the agent. The operator's previously
+verified results (bridge-safety 5/5, dialect 26/26,
+`npm test` 132/132, build OK, diff-check clean) PRE-DATE
+this hardening and must be re-run:
+`node scripts/test-pg-bridge-safety.mjs` (expect 6/6),
+`npm test` (expect 133/133), `npm run build`,
+`git diff --check`.
+
+---
+
+## 14. Session 16 — SIGTERM safety test made deterministic (2026-10-04)
+
+The Session 15 SIGTERM test failed on its FIRST
+assertion ("the parent exited on its own after SIGTERM"):
+the parent's 'exit' code was NULL, which happens only
+when the process died FROM a signal (default
+disposition) or was SIGKILLed. Two root causes, both
+fixed:
+
+1. **Boot race** — the test slept a fixed 500 ms
+   before signaling. On a slow boot the SIGTERM arrived
+   BEFORE the parent registered its handlers
+   (process.on at lines 208-209), so Node's DEFAULT
+   SIGTERM disposition killed the process (exit code
+   null). Fix: the parent prints a readiness marker
+   ("pg-integration: setup started") AFTER handler
+   registration and BEFORE parking in the maintenance
+   connect; the test polls for that marker (bounded
+   20 s) instead of sleeping.
+
+2. **Indistinguishable exits** — even when the handler
+   ran, the parent's main-flow `maintenance.connect()`
+   (test-shortened to 3 s, started at boot) rejected
+   first and called process.exit(1), so the observed
+   exit (1) and output ("cannot connect to
+   TEST_DATABASE_URL") belonged to the UNRELATED
+   connection failure, not the handler. The old test
+   accepted code 1 OR 143 and treated the connect
+   failure message as valid evidence — it could not
+   prove the handler caused the exit. Fix: the test
+   pends the main connect far beyond the test window
+   (PG_TEST_CONNECT_TIMEOUT_MS=600) so that path is
+   unreachable; bounds the handler's cleanup budget
+   (new override PG_TEST_CLEANUP_BUDGET_MS=3000) so
+   the handler ALWAYS completes and exits 143 within
+   the window, regardless of pg connect-timeout
+   semantics; and shortens the cleanup connect (new
+   override PG_TEST_CLEANUP_CONNECT_TIMEOUT_MS=1).
+   Assertions are now strict: exit code EXACTLY 143;
+   "received SIGTERM" present; "could not drop the
+   scratch database" present (cleanup attempted the
+   drop); and ABSENT: "cannot connect to
+   TEST_DATABASE_URL" (proves the exit was not the
+   unrelated failure) and "created scratch database"
+   (proves fail-closed: no child spawned). The test
+   also waits for the child's 'close' event (stdio
+   drained) before asserting on output, and a forced
+   SIGKILL still fails the test (code null) — never
+   accepted as graceful handling.
+
+Parent changes are confined to the test script
+`scripts/test-pg-integration.mjs`: a `connectCleanup()`
+factory (short, overridable connect timeout for the
+signal path), its use in cleanup(), the overridable
+cleanup budget, and the readiness marker. No
+application, payment/INR/provider/order/wallet,
+SQLite, migration, or Render logic touched.
+
+NOT executed by the agent (shell hangs). Operator
+re-run: `node scripts/test-pg-bridge-safety.mjs`
+(expect 6/6), `npm test` (expect 133/133),
+`npm run build`, `git diff --check`.

@@ -91,11 +91,20 @@ export function coinToMinor(coinStr, decimals) {
   return Number(minor);
 }
 
-// ---- Credentials (settings-table backed, write-only) ----
+// ---- Credentials (environment-first, settings-table backed, write-only) ----
+// Precedence: a non-blank APIRONE_ACCOUNT_ID / APIRONE_TRANSFER_KEY
+// environment variable is the authoritative default (it survives restarts
+// and redeployments without manual re-entry); a blank variable falls back
+// to the value stored in the settings table (Admin → Settings), so manually
+// entered credentials are preserved and a blank environment value can never
+// erase them. Values are read at call time and NEVER written back to the
+// database, so stored settings always remain intact.
 export function apironeCreds() {
+  const envAccount = String(process.env.APIRONE_ACCOUNT_ID || '').trim();
+  const envTransfer = String(process.env.APIRONE_TRANSFER_KEY || '').trim();
   return {
-    account_id: String(getSetting('apirone_account_id') || '').trim(),
-    transfer_key: String(getSetting('apirone_transfer_key') || '').trim(),
+    account_id: envAccount || String(getSetting('apirone_account_id') || '').trim(),
+    transfer_key: envTransfer || String(getSetting('apirone_transfer_key') || '').trim(),
     webhook_token: String(getSetting('apirone_webhook_token') || '').trim(),
   };
 }

@@ -27,6 +27,9 @@ const KIND = {
   create_coupon: ['Create coupon', 'var(--info)'],
   edit_coupon: ['Edit coupon', 'var(--info)'],
   manual_confirm_deposit: ['Manual deposit confirm', 'var(--success)'],
+  verify_inr_deposit: ['Verify INR deposit', 'var(--success)'],
+  deny_inr_deposit: ['Deny INR deposit', 'var(--danger)'],
+  dismiss_deposit: ['Dismiss deposit', 'var(--danger)'],
   update_settings: ['Update settings', 'var(--warn)'],
 };
 
@@ -49,7 +52,7 @@ export default function AdminLogs() {
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="table-wrap" style={{ border: 'none', borderRadius: 0 }}>
             <table>
-              <thead><tr><th>Event</th><th>Email</th><th>IP</th><th>When (IST)</th></tr></thead>
+              <thead><tr><th>Event</th><th>Email</th><th>IP</th><th>Detail</th><th>When (IST)</th></tr></thead>
               <tbody>
                 {logs.map((l) => {
                   const [label, color] = KIND[l.action] || [l.action, 'var(--faint)'];
@@ -58,6 +61,7 @@ export default function AdminLogs() {
                       <td><span className="dot" style={{ background: color, marginRight: 8 }} />{label}</td>
                       <td className="mono" style={{ fontSize: '0.85rem' }}>{l.email || '—'}</td>
                       <td><code className="code">{l.ip || '—'}</code></td>
+                      <td className="faint" style={{ maxWidth: 280, wordBreak: 'break-word' }}>{l.detail || '—'}</td>
                       <td className="faint">{l.created_ist}</td>
                     </tr>
                   );

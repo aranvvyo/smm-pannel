@@ -47,3 +47,9 @@ services:
     # envVars (add when the disk is enabled):
     #   - key: DB_FILE
     #     value: /var/data/instasmm.db
+    # Optional — external PostgreSQL instead of the SQLite file.
+    # Never set from the repo: add it in Dashboard → Environment.
+    # When set, the panel boots against PostgreSQL (fresh
+    # server/schema.pg.sql database — no SQLite data migration):
+    #   - key: DATABASE_URL
+    #     sync: false        # postgres://user:pass@host/db?sslmode=require

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getDb, getExchangeRate } from '../db.js';
+import { getDb, getExchangeRate, isUniqueViolation } from '../db.js';
 import { requireAdmin, logSecurity } from '../middleware/auth.js';
 import {
   isApironeConfigured, apironeCreds, apironeAuthFetch,
@@ -268,7 +268,12 @@ r.post('/', ah(async (req, res) => {
         result.ref, result.txHash, key, now, now
       );
     } catch (ins) {
-      if (String(ins?.message || '').includes('UNIQUE')) {
+      // A lost-response retry re-INSERTs the same key → the UNIQUE
+      // column constraint rejects it; surface that as the duplicate
+      // outcome rather than a 500. isUniqueViolation accepts both
+      // SQLite's "UNIQUE constraint failed" and PostgreSQL's
+      // "duplicate key value violates unique constraint" (23505).
+      if (isUniqueViolation(ins)) {
         return sendErr(res, 409, 'This withdrawal was already booked — no duplicate was created.', 'DUPLICATE');
       }
       throw ins;

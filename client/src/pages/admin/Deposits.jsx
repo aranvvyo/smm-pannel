@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { get, post } from '../../api.js';
 import { useToast, fmtInr, fmtUsd, Empty, Icon, Modal } from '../../ui.jsx';
+import InrDeposits from './InrDeposits.jsx';
 
 const CUR_DISPLAY = { LTC: 'LTC', BEP20_USDT: 'USDT (BEP20)', ERC20_USDT: 'USDT (ERC20)' };
 
@@ -21,9 +22,12 @@ export default function AdminDeposits() {
   const [reason, setReason] = useState('');
   const [dismissReason, setDismissReason] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [tab, setTab] = useState('crypto'); // 'crypto' | 'inr'
 
   const load = async () => { setDeposits((await get('/api/admin/deposits')).deposits); setLoaded(true); };
-  useEffect(() => { load(); }, []);
+  // Fetch the crypto list only when its tab is visible — the INR
+  // tab has its own data source (and re-loads on every switch).
+  useEffect(() => { if (tab === 'crypto') load(); }, [tab]);
 
   // Fetch the full deposit detail (incl. upstream provider_event + confirmed_at)
   // into the verification modal — never confirm a deposit you can't inspect.
@@ -81,8 +85,15 @@ export default function AdminDeposits() {
       <p className="page-sub">
         Crypto deposits. Credits happen exactly once per deposit, only after a valid payment
         event (real webhook / simulator) or an explicit, reason-audited manual confirm.
+        INR deposits follow the manual VCGetaway verification workflow.
       </p>
 
+      <div className="filter-chips">
+        <button type="button" className={`chip ${tab === 'crypto' ? 'active' : ''}`} onClick={() => setTab('crypto')}>Crypto</button>
+        <button type="button" className={`chip ${tab === 'inr' ? 'active' : ''}`} onClick={() => setTab('inr')}>INR (manual)</button>
+      </div>
+
+      {tab === 'crypto' && (<>
       {loaded && deposits.length === 0 ? (
         <div className="card"><Empty icon="coins" text="No deposits yet." /></div>
       ) : (
@@ -198,6 +209,9 @@ export default function AdminDeposits() {
           </div>
         </Modal>
       )}
+      </>)}
+
+      {tab === 'inr' && <InrDeposits />}
     </>
   );
 }

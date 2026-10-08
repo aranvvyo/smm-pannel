@@ -23,7 +23,7 @@ export default function Wallet() {
   return (
     <>
       <h1 className="page-title">Wallet</h1>
-      <p className="page-sub">Your INR balance. Deposits are made in USD and credited at the panel rate.</p>
+      <p className="page-sub">Your INR balance. Top up in crypto (USD, credited at the panel rate) or in INR via Deposit → Deposit INR (manual verification).</p>
 
       <div className="grid grid-3" style={{ marginBottom: 24 }}>
         <div className="card card-gradient">
@@ -32,7 +32,10 @@ export default function Wallet() {
           {w != null && (
             <div className="muted" style={{ fontSize: '0.82rem', marginTop: 6 }}>Today&apos;s spend: {fmtInr(w.today_spent_inr)}</div>
           )}
-          <Link to="/deposit" className="btn btn-primary btn-sm" style={{ marginTop: 14 }}><Icon name="deposit" size={15} stroke={2.2} /> Deposit</Link>
+          <div className="stack" style={{ gap: 8, marginTop: 14 }}>
+            <Link to="/deposit" className="btn btn-primary btn-sm"><Icon name="deposit" size={15} stroke={2.2} /> Deposit</Link>
+            <Link to="/deposit/inr" className="btn btn-outline btn-sm"><Icon name="bank" size={15} stroke={2.2} /> Deposit in INR</Link>
+          </div>
         </div>
         <div className="card">
           <div className="card-label">Total spent (USD)</div>

@@ -78,11 +78,46 @@ export const config = {
     support_phone: '',
   },
 
-  // Apirone base URL (self-hosted or apirone.com). Credentials (account_id,
-  // transfer_key, webhook_token) are stored in the settings table and entered
-  // at runtime through Admin → Settings — NEVER in env or codebase.
+  // Apirone base URL (self-hosted or apirone.com). Credentials come from
+  // the environment (APIRONE_ACCOUNT_ID / APIRONE_TRANSFER_KEY — authoritative
+  // while non-blank) or from the settings table (Admin → Settings, the fallback).
+  // These environment variables are read directly at runtime and used server-side
+  // only. They are NEVER stored in the database, never serialized into any
+  // API response, and never logged. The settings table provides a manual
+  // override/backup, never an authoritative source in production.
   apirone: {
     apiUrl: process.env.APIRONE_API_URL || 'https://apirone.com',
+    // Direct environment overrides of what the admin can edit in Settings:
+    // only the UI can modify the settings table, but the environment is the
+    // source of truth in production. Blank environment vars fall back to the
+    // stored settings (so manually entered credentials survive restarts).
+  },
+
+  // Environment-managed SMM supplier (THEMAINSMMPROVIDER_*). When BOTH the
+  // URL and the key are non-empty, the server boot ensures a matching
+  // provider row exists (server/lib/managedProvider.js) so supplier
+  // credentials survive restarts and redeployments without manual re-entry.
+  // Blank values are a complete no-op — stored provider configuration is
+  // never touched. The key is used server-side only: never logged, never
+  // serialized to any response.
+  managedProvider: {
+    apiUrl: String(process.env.THEMAINSMMPROVIDER_API_URL || '').trim(),
+    apiKey: String(process.env.THEMAINSMMPROVIDER_API_KEY || '').trim(),
+  },
+
+  // VCGetaway INR gateway — PROPOSED configuration names only. The gateway
+  // publishes NO verifiable API documentation (verified 2026-10-04: the site
+  // is a marketing page distributing an Android APK, and the developer's
+  // GitHub repo contains no API spec — no checkout endpoint, authentication
+  // scheme, webhook signature spec, status endpoint, or minimum amount).
+  // These variables are read so the operator's environment is ready, but
+  // NOTHING consumes them yet: no gateway code path exists, and the client
+  // keeps GATEWAY_CONNECTED=false until the official API contract is verified
+  // and a server-side integration is implemented and tested.
+  vcGetaway: {
+    apiKey: String(process.env.VCGETAWAY_API_KEY || '').trim(),
+    apiUrl: String(process.env.VCGETAWAY_API_URL || '').trim(),
+    webhookSecret: String(process.env.VCGETAWAY_WEBHOOK_SECRET || '').trim(),
   },
 
   depositCryptos: [

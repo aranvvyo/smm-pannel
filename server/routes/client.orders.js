@@ -19,9 +19,17 @@ quoteRouter.post('/quote', requireAuth, (req, res) => {
 
 const r = Router();
 
-// POST /api/orders — place an order. Provider-first: upstream failure means a
-// 502 with the REAL error and nothing was charged.
-r.post('/', requireAuth, ah(async (req, res) => {
+// Reversible order kill-switch (incident response): ORDERS_ENABLED=0
+// pauses NEW customer orders with a clean 503 while the rest of the
+// site (deposits, wallet, history, admin) keeps working. Toggled by
+// environment + restart — no database change, no site-wide outage.
+// Read at request time so a restart picks the value up immediately.
+r.post('/', requireAuth, (req, res, next) => {
+  if (process.env.ORDERS_ENABLED === '0') {
+    return sendErr(res, 503, 'New orders are temporarily paused. Please try again shortly.', 'ORDERS_PAUSED');
+  }
+  return next();
+}, ah(async (req, res) => {
   const { serviceId, link, quantity, coupon_code, comments, runs, interval } = req.body || {};
   try {
     const order = await placeOrder({

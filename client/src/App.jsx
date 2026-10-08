@@ -107,6 +107,7 @@ function ClientShell() {
     ['/orders', 'My Orders'],
     ['/wallet', 'Wallet'],
     ['/deposit', 'Deposit'],
+    ['/deposit/inr', 'Deposit INR'],
     ['/tickets', 'Support'],
     ['/notifications', 'Notifications'],
     ['/profile', 'Profile'],
