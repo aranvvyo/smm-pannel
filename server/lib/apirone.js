@@ -462,9 +462,9 @@ export function creditDeposit(depositId, { receivedUsdCents, receivedMinor, txHa
   try {
     db.prepare(
       `UPDATE deposits SET status=?, paid_usd=?, amount_inr=?, paid_at=?, confirmed_at=?,
-        received_minor=CASE WHEN ? > 0 THEN ? ELSE received_minor END,
-        tx_hash=CASE WHEN ? IS NOT NULL AND ? <> '' THEN ? ELSE tx_hash END,
-        provider_event=COALESCE(provider_event, ?) WHERE id=?`
+        received_minor=CASE WHEN ? > 0 THEN CAST(? AS DOUBLE PRECISION) ELSE received_minor END,
+        tx_hash=CASE WHEN CAST(? AS TEXT) IS NOT NULL AND CAST(? AS TEXT) <> '' THEN CAST(? AS TEXT) ELSE tx_hash END,
+        provider_event=COALESCE(provider_event, CAST(? AS TEXT)) WHERE id=?`
     ).run(status, paidUsdNew, usdToInr(paidUsdNew, rate), now, status === 'confirmed' ? now : deposit.confirmed_at,
       resvMinor, resvMinor, resvHash, resvHash, resvHash,
       status === 'confirmed' ? 'credited by verified payment' : null, deposit.id);

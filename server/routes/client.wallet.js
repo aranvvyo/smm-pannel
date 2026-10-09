@@ -89,6 +89,10 @@ r.post('/deposits', requireAuth, ah(async (req, res) => {
   }
   const rate = getExchangeRate();
   const usdCents = Math.round(amountUsd * 100);
+  // Amounts under half a cent round to 0 — never send a zero-value invoice.
+  if (usdCents < 1) {
+    return sendErr(res, 400, 'Enter a valid deposit amount in USD.');
+  }
   const inrPaise = usdToInr(usdCents, rate);
   const now = Date.now();
   const timeoutHours = Number(getDb().prepare(`SELECT value FROM settings WHERE key='deposit_timeout_hours'`).get().value || 24);
