@@ -1,44 +1,65 @@
 import { getDb } from '../db.js';
 import { notify } from './notifier.js';
 import { fmtInr } from './money.js';
+import { config } from '../config.js';
+import { generateOrderId, buildUpiUri, GATEWAY_NAME } from './inrOrder.js';
+import { isUniqueViolation } from './pgDialect.js';
 // Single source of truth for the INR money math (shared with the client).
 import { inrCreditPaise, inrSurchargePaise, inrTotalPaise } from '../../client/src/lib/inrPayments.js';
 
 // ---------------------------------------------------------------------------
-// INR (VCGetaway) deposit workflow — MANUAL VERIFICATION ONLY.
+// INSTA SMM GATEWAY — INR deposit workflow.
 //
-// VCGetaway publishes no merchant API documentation (verified
-// 2026-10-04): the only evidence is hosted invoice pages with an
-// "I Have Paid" claim flow and verification states. There is no
-// documented invoice-creation endpoint, authentication scheme,
-// signature algorithm, status lookup or webhook contract — so this
-// module NEVER:
-//   • fabricates an invoice, UPI QR code, UPI ID or reference,
-//   • treats a customer claim ("I have paid") as proof of payment,
-//   • credits a wallet from any client-side flag or automated signal.
+// Documented VC Gateway flow:
+//   generate unique Order ID → generate UPI QR → customer pays → verify.
 //
-// The workflow:
-//   1. Client requests a deposit  → PENDING record (credit / 10%
-//      customer surcharge / total). Nothing is credited.
-//   2. Customer pays the operator-issued UPI invoice (out of band —
-//      the invoice itself is created in the operator's VCGetaway
-//      dashboard until an API is documented).
-//   3. Customer claims payment    → AWAITING_VERIFICATION. A claim is
-//      a recorded statement, never verification.
-//   4. Admin verifies the ACTUAL payment (against the gateway
-//      dashboard / UPI confirmation) → wallet credited the CREDIT
-//      amount — never the surcharge-inclusive total — exactly once,
-//      atomically with the ledger entry, with the reason recorded.
+// What this module does:
+//   • creates a server-generated order id and a PENDING record,
+//   • builds the documented UPI payment URI (amount = TOTAL payable),
+//   • records a customer "I have paid" claim (never proof),
+//   • credits a wallet ONLY through admin verification of the real payment.
+//
+// What it NEVER does:
+//   • credit a wallet because an order or QR exists,
+//   • trust a client-supplied status, amount, or transaction id,
+//   • call a provider verification endpoint — none is documented yet.
+//     Automatic crediting stays DISABLED until the provider's
+//     verification contract is confirmed (see the TODO below).
+//
+// Workflow:
+//   1. Client requests a deposit  → PENDING order + UPI URI. Nothing credited.
+//   2. Customer pays the UPI URI  → out of band.
+//   3. Customer claims payment    → AWAITING_VERIFICATION (recorded only).
+//   4. Admin verifies the actual payment → wallet credited the CREDIT amount
+//      (never the total), exactly once, atomically with the ledger entry.
 //   5. Admin denies               → DENIED, no credit.
+//
+// TODO(verification): automatic verification is blocked on the provider
+//   contract. Once VC Gateway documents the verification request, response
+//   fields (PAID/PENDING/FAILED/...) and whether it is the same
+//   payment_api.php endpoint, add a server-side check here that credits
+//   ONLY on a verified SUCCESS with matching order_id, exact total amount,
+//   INR currency, and no prior credit for that order_id.
 // ---------------------------------------------------------------------------
 
 export function toClientView(d) {
+  const orderId = d.order_id || null;
   return {
     id: Number(d.id),
+    gateway: GATEWAY_NAME,
+    order_id: orderId,
     credit_paise: Number(d.credit_paise),
     surcharge_paise: Number(d.surcharge_paise),
     total_paise: Number(d.total_paise),
     status: d.status,
+    // Documented UPI URI for the QR. Only for orders that carry an order id.
+    // A misconfigured UPI id must never break listing pages: fail to null.
+    upi_uri: (() => {
+      if (!orderId) return null;
+      try {
+        return buildUpiUri({ upiId: config.vcGetaway.upiId, orderId, totalPaise: Number(d.total_paise) });
+      } catch { return null; }
+    })(),
     invoice_ref: d.invoice_ref || null,
     payment_ref: d.payment_ref || null,
     created_at: d.created_at,
@@ -46,8 +67,7 @@ export function toClientView(d) {
   };
 }
 
-// Step 1 — request. Pending record only: no invoice/QR/UPI data is
-// ever fabricated and nothing is credited.
+// Step 1 — request. Pending record only: nothing is credited.
 export function createInrDeposit({ userId, rupees, invoiceRef } = {}) {
   const credit = inrCreditPaise(rupees);
   if (credit === null) return { ok: false, reason: 'invalid-amount' };
@@ -55,10 +75,21 @@ export function createInrDeposit({ userId, rupees, invoiceRef } = {}) {
   const total = inrTotalPaise(credit);
   const db = getDb();
   const now = Date.now();
-  const info = db.prepare(
-    `INSERT INTO inr_deposits (user_id, credit_paise, surcharge_paise, total_paise, status, invoice_ref, created_at)
-     VALUES (?,?,?,?,'pending',?,?)`
-  ).run(userId, credit, surcharge, total, invoiceRef ? String(invoiceRef).trim().slice(0, 200) : null, now);
+  // The order id is generated HERE, never taken from the client. The unique
+  // index on order_id makes a collision fail loudly; we retry a few times.
+  let info = null;
+  for (let attempt = 0; attempt < 5 && !info; attempt++) {
+    const orderId = generateOrderId(new Date(now));
+    try {
+      info = db.prepare(
+        `INSERT INTO inr_deposits (user_id, credit_paise, surcharge_paise, total_paise, status, invoice_ref, created_at, order_id)
+         VALUES (?,?,?,?,'pending',?,?,?)`
+      ).run(userId, credit, surcharge, total, invoiceRef ? String(invoiceRef).trim().slice(0, 200) : null, now, orderId);
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;   // retry only on an order-id collision
+    }
+  }
+  if (!info) return { ok: false, reason: 'order-id-collision' };
   const row = db.prepare('SELECT * FROM inr_deposits WHERE id=?').get(Number(info.lastInsertRowid));
   try {
     notify(userId, 'deposit', 'INR Deposit Requested',

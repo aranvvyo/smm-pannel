@@ -19,21 +19,35 @@
 // 10% customer surcharge, expressed in basis points (1000 bp = 10%).
 export const SURCHARGE_BPS = 1000;
 
-// Maximum single deposit request, in rupees. ₹1e9 = 1e11 paise —
-// comfortably inside both JavaScript's safe-integer range and
-// SQLite's 64-bit INTEGER, so every amount stays exact. Anything
-// larger is rejected: past ~9.2e16 rupees the paise value would
-// overflow SQLite's INTEGER, and long before that float rounding
-// would silently corrupt the amount.
-export const MAX_RUPEES = 1_000_000_000;
+// There is NO business maximum on deposits. The only ceiling is an
+// integer-precision guard: the surcharge is computed as credit × 1000
+// (basis points), which stays exact only while that product is within
+// Number.MAX_SAFE_INTEGER. Derived from that arithmetic, never shown to
+// customers, and far above any real deposit. It is not a limit to display.
+export const MAX_CREDIT_PAISE_EXACT = Math.floor(Number.MAX_SAFE_INTEGER / SURCHARGE_BPS);
 
 // Validate a customer-entered rupee amount and convert it to integer paise.
-// Returns null for anything invalid (zero, negative, non-numeric, missing,
-// non-finite, above the maximum); otherwise the credit in whole paise.
+// Accepts a plain decimal number or numeric string with at most two decimal
+// places. Returns null for anything else: booleans, objects, empty, zero,
+// negative, hex/exponent notation, more than 2 decimals (we never silently
+// round money), or above the precision guard.
 export function inrCreditPaise(rupees) {
-  const n = Number(rupees);
-  if (!Number.isFinite(n) || n <= 0 || n > MAX_RUPEES) return null;
-  return Math.round(n * 100);
+  let s;
+  if (typeof rupees === 'number') {
+    if (!Number.isFinite(rupees)) return null;
+    s = String(rupees);
+  } else if (typeof rupees === 'string') {
+    s = rupees.trim();
+  } else {
+    return null;
+  }
+  if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
+  const [wholeStr, fracStr = ''] = s.split('.');
+  const whole = Number(wholeStr);
+  if (!Number.isSafeInteger(whole) || whole > Math.floor(MAX_CREDIT_PAISE_EXACT / 100)) return null;
+  const paise = whole * 100 + Number(fracStr.padEnd(2, '0'));
+  if (paise <= 0 || paise > MAX_CREDIT_PAISE_EXACT) return null;
+  return paise;
 }
 
 // The customer surcharge in integer paise.
@@ -44,4 +58,23 @@ export function inrSurchargePaise(creditPaise) {
 // The total the customer pays, in integer paise (credit + surcharge).
 export function inrTotalPaise(creditPaise) {
   return creditPaise + inrSurchargePaise(creditPaise);
+}
+
+// User-facing text for a failed deposit request. Takes the thrown API error
+// ({ status, message }) and never shows internal detail. Specific server
+// messages (e.g. "Deposit not found.", "Enter a valid deposit amount") are
+// kept as-is; only generic or unknown failures are replaced.
+export function depositErrorMessage(err) {
+  if (!err) return 'Something went wrong. Please try again.';
+  // A fetch that never reached the server (offline, DNS, CORS) has no status.
+  if (err.status === undefined) return 'Network error. Check your connection and try again.';
+  // The server's catch-all for unmatched /api paths. Reaching it means the
+  // deposit service is not wired up, which is a genuine failure to report.
+  if (err.status === 404 && (err.message === 'Not found.' || !err.message)) {
+    return "The deposit service isn't available right now. Please try again shortly.";
+  }
+  if (err.status === 401 || err.status === 403) return 'Please sign in again to continue.';
+  if (err.status >= 500) return 'Something went wrong on our side. Please try again shortly.';
+  if (typeof err.message === 'string' && err.message && err.message !== 'Request failed.') return err.message;
+  return 'Something went wrong. Please try again.';
 }

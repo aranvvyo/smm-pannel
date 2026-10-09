@@ -113,6 +113,11 @@ function ensureColumns() {
   // Additive only — existing rows default to 0 (admin-managed), which is
   // exactly the pre-existing behavior.
   add('providers', 'env_managed', 'INTEGER NOT NULL DEFAULT 0');
+
+  // INSTA SMM GATEWAY: server-generated order id, unique so one order can
+  // never be recorded twice. NULL for legacy manual deposits.
+  add('inr_deposits', 'order_id', 'TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_inr_deposits_order ON inr_deposits(order_id) WHERE order_id IS NOT NULL');
 }
 
 // PostgreSQL twin of ensureColumns: information_schema.columns
@@ -160,6 +165,10 @@ function ensureColumnsPg() {
   add('withdrawals', 'tx_hash', 'TEXT');
   add('security_logs', 'detail', 'TEXT');
   add('providers', 'env_managed', 'BIGINT NOT NULL DEFAULT 0');
+
+  // INSTA SMM GATEWAY order id — unique, NULL for legacy manual deposits.
+  add('inr_deposits', 'order_id', 'TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_inr_deposits_order ON inr_deposits(order_id) WHERE order_id IS NOT NULL');
 }
 
 // Ensure every defaultSetting key exists in the settings table (never drops

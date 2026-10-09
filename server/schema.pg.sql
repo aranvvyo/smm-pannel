@@ -300,6 +300,8 @@ CREATE TABLE IF NOT EXISTS inr_deposits (
   verified_by     BIGINT REFERENCES users(id),
   verify_note     TEXT,
   created_at      BIGINT NOT NULL,
-  verified_at     BIGINT
+  verified_at     BIGINT,
+  order_id        TEXT                  -- INSTA SMM GATEWAY order id (server-generated, unique)
 );
 CREATE INDEX IF NOT EXISTS idx_inr_deposits_user ON inr_deposits(user_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inr_deposits_order ON inr_deposits(order_id) WHERE order_id IS NOT NULL;

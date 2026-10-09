@@ -1,33 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import { get, post } from '../../api.js';
 import { useToast, fmtInr, Icon, timeAgo } from '../../ui.jsx';
 import {
-  SURCHARGE_BPS, MAX_RUPEES, inrCreditPaise, inrSurchargePaise, inrTotalPaise,
+  SURCHARGE_BPS, inrCreditPaise, inrSurchargePaise, inrTotalPaise, depositErrorMessage,
 } from '../../lib/inrPayments.js';
 
 // ---------------------------------------------------------------------------
-// VCGetaway INR deposit — MANUAL VERIFICATION WORKFLOW.
+// INSTA SMM GATEWAY — INR deposit page (customer side).
 //
-// The VCGetaway gateway publishes no merchant API contract, so there is
-// NO automated checkout: this page talks only to OUR backend
-// (/api/deposits/inr). The flow is:
-//   1. Request a deposit  → a PENDING record (credit / 10% customer
-//      surcharge / total) — nothing is credited, nothing is paid.
-//   2. The customer pays the operator-issued UPI invoice (out of
-//      band) and presses "I Have Paid" — which RECORDS A CLAIM ONLY.
-//      A claim is never proof of payment and never credits a wallet.
-//   3. An authorized admin verifies the ACTUAL payment server-side
-//      (Admin → Deposits → INR) — only then is the wallet credited,
-//      exactly once, with the CREDIT amount (never the total).
+// Documented flow: the server creates a unique order ID and the UPI
+// payment URI; this page shows the QR and the total to pay. The customer
+// pays, then presses "I Have Paid", which RECORDS A CLAIM ONLY.
 //
-// GATEWAY_CONNECTED gates the (future) automated gateway flow. It
-// stays FALSE: no VCGetaway endpoint is called, no payment is
-// initiated, and no client-side flag can credit a wallet.
+// The wallet is credited only when an authorized admin verifies the real
+// payment (Admin → Deposits → INR), exactly once, with the CREDIT amount.
+// Automatic verification is not implemented: the provider's verification
+// contract is undocumented, so no automatic crediting exists anywhere.
+//
+// This page never sees the API key, never decides a payment succeeded,
+// and never sends an amount the server did not compute.
 // ---------------------------------------------------------------------------
 
-// Flip to true ONLY once the server exposes a verified VCGetaway
-// checkout endpoint. Until then the automated flow stays disconnected
-// and the manual workflow above is the only path.
+// Automated checkout is not connected. The pay() handler below is inert.
 const GATEWAY_CONNECTED = false;
 
 // Quick-pick amounts, in rupees (the panel stores money as integer paise).
@@ -70,6 +65,7 @@ export default function VcDeposit() {
   const [busy, setBusy] = useState(false);          // creating a request
   const [claimBusy, setClaimBusy] = useState(false); // recording a claim
   const [err, setErr] = useState('');
+  const [qrUrl, setQrUrl] = useState('');           // QR image for the server's UPI URI
 
   // Money math — all integer paise, from the shared INR helpers (the
   // single source of truth). The customer picks how much wallet CREDIT
@@ -95,7 +91,7 @@ export default function VcDeposit() {
         const deposits = await load();
         const open = deposits.find((d) => ['pending', 'awaiting_verification'].includes(d.status));
         if (open) setActive(open);
-      } catch (x) { setErr(x.message); }
+      } catch (x) { setErr(depositErrorMessage(x)); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -115,11 +111,23 @@ export default function VcDeposit() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id, active?.status]);
 
-  // Step 1 — request a deposit. Creates a PENDING record only: no
-  // invoice/QR/UPI data is fabricated, nothing is credited.
+  // Render the QR from the UPI URI the SERVER built for this order. The URI
+  // is only ever read from the server response; it is never assembled here.
+  useEffect(() => {
+    let cancelled = false;
+    const uri = active?.upi_uri;
+    if (!uri) { setQrUrl(''); return undefined; }
+    QRCode.toDataURL(uri, { width: 220, margin: 1, color: { dark: '#0f172a', light: '#ffffff' } })
+      .then((url) => { if (!cancelled) setQrUrl(url); })
+      .catch(() => { if (!cancelled) setQrUrl(''); });
+    return () => { cancelled = true; };
+  }, [active?.upi_uri]);
+
+  // Step 1 — request a deposit. Creates a PENDING order on the server
+  // (server-generated order ID, server-computed fee). Nothing is credited.
   const create = async (e) => {
     e.preventDefault();
-    if (!valid) { setErr(`Enter a valid amount in ₹ (max ${fmtInr(MAX_RUPEES * 100)}).`); return; }
+    if (!valid) { setErr('Enter a valid amount in ₹ (up to 2 decimal places).'); return; }
     setErr(''); setBusy(true);
     try {
       const d = await post('/api/deposits/inr', { rupees: Number(rupees) });
@@ -127,7 +135,7 @@ export default function VcDeposit() {
       setHist((h) => [d.deposit, ...h.filter((x) => x.id !== d.deposit.id)]);
       setRupees('');
       toast(`Deposit requested — pay ${fmtInr(d.deposit.total_paise)} (includes ${fmtInr(d.deposit.surcharge_paise)} customer surcharge).`, 'success');
-    } catch (x) { setErr(x.message); } finally { setBusy(false); }
+    } catch (x) { setErr(depositErrorMessage(x)); } finally { setBusy(false); }
   };
 
   // Step 2 — "I Have Paid". RECORDS A CLAIM ONLY: it transitions the
@@ -143,7 +151,7 @@ export default function VcDeposit() {
       setActive(d.deposit);
       setHist((h) => h.map((x) => (x.id === d.deposit.id ? d.deposit : x)));
       toast('Claim recorded — awaiting admin verification. Your wallet is credited only after verification.', 'success');
-    } catch (x) { setErr(x.message); } finally { setClaimBusy(false); }
+    } catch (x) { setErr(depositErrorMessage(x)); } finally { setClaimBusy(false); }
   };
 
   // Future automated flow — unreachable while GATEWAY_CONNECTED is false.
@@ -186,9 +194,8 @@ export default function VcDeposit() {
     <>
       <h1 className="page-title">Deposit in INR</h1>
       <p className="page-sub">
-        Add funds via VCGetaway — card, UPI &amp; net banking. Payments are verified
-        manually: your wallet is credited only after an authorized admin confirms
-        the payment, and only with the credit amount you requested.
+        Add funds with UPI through INSTA SMM GATEWAY. Your wallet is credited only after
+        the payment is verified, and only with the credit amount you requested.
       </p>
 
       <div className="vc-grid">
@@ -202,14 +209,13 @@ export default function VcDeposit() {
               onMouseMove={onMove}
               onMouseLeave={onLeave}
               role="img"
-              aria-label="VCGetaway payment card preview"
+              aria-label="INSTA SMM GATEWAY payment card"
             >
               <div className="vc-card3d-face">
                 <div className="vc-shine" />
                 <div className="vc-brand">
                   <span className="vc-mark"><Icon name="coins" size={17} stroke={2} /></span>
-                  <span>VCGetaway</span>
-                  {!GATEWAY_CONNECTED && <span className="vc-surcharge-badge" style={{ marginLeft: 'auto' }}>Preview</span>}
+                  <span>INSTA SMM GATEWAY</span>
                 </div>
                 <div>
                   <div className="vc-amount">{showAny ? fmtInr(showTotal) : '₹ —'}</div>
@@ -219,7 +225,7 @@ export default function VcDeposit() {
                 </div>
                 <div className="vc-foot">
                   <span className="vc-chip" />
-                  <span className="vc-network">INR · UPI / Card / NetBanking</span>
+                  <span className="vc-network">INR · UPI</span>
                 </div>
               </div>
             </div>
@@ -247,21 +253,21 @@ export default function VcDeposit() {
                 type="number"
                 inputMode="decimal"
                 min="1"
-                step="1"
+                step="0.01"
                 placeholder="0"
                 value={rupees}
                 onChange={(e) => setRupees(e.target.value)}
               />
               <p className="faint" style={{ fontSize: '0.82rem', marginTop: 8 }}>
-                No minimum — enter any amount up to {fmtInr(MAX_RUPEES * 100)}. A 10% customer surcharge is added to the total you pay.
+                No minimum or maximum deposit limit. A 10% customer surcharge is added to your payment.
               </p>
               {err && <div className="field-error"><Icon name="alert" size={15} /> {err}</div>}
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} disabled={busy || !valid}>
                 {busy ? 'Requesting…' : 'Request deposit'}
               </button>
               <p className="faint" style={{ fontSize: '0.78rem', marginTop: 8, lineHeight: 1.5 }}>
-                After requesting, you will be asked to pay the total via the UPI invoice
-                issued by the operator — the wallet receives the credit amount, never the total.
+                After requesting, scan the QR code with any UPI app and pay the total —
+                the wallet receives the credit amount, never the total.
               </p>
             </form>
           </div>
@@ -302,22 +308,30 @@ export default function VcDeposit() {
                 {st(active.status)}
               </div>
 
-              {active.invoice_ref && (
+              {active.order_id && (
                 <div className="vc-row" style={{ marginTop: 8 }}>
-                  <span className="vc-k"><Icon name="qr" size={15} /> Invoice reference</span>
-                  <span className="vc-v mono">{active.invoice_ref}</span>
+                  <span className="vc-k"><Icon name="qr" size={15} /> Order ID</span>
+                  <span className="vc-v mono" style={{ wordBreak: 'break-all' }}>{active.order_id}</span>
                 </div>
               )}
 
               {active.status === 'pending' && (
                 <>
-                  <div className="vc-status pending" role="status" aria-live="polite">
+                  <div className="qr-section" style={{ marginTop: 14 }}>
+                    {qrUrl ? (
+                      <img src={qrUrl} alt={`UPI QR code to pay ${fmtInr(Number(active.total_paise))}`} className="qr-img" />
+                    ) : (
+                      <div className="qr-placeholder">
+                        <Icon name="qr" size={32} stroke={1.3} />
+                        <span className="faint" style={{ fontSize: '0.8rem' }}>QR unavailable — use the order ID below</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="vc-status pending" role="status" aria-live="polite" style={{ marginTop: 12 }}>
                     <span className="dot pulse" style={{ background: 'var(--warn)' }} />
                     <span>
-                      Pay <b>{fmtInr(Number(active.total_paise))}</b> via the UPI invoice issued by the operator
-                      {active.invoice_ref
-                        ? <> — include the invoice reference <b>{active.invoice_ref}</b> in the payment remarks</>
-                        : ' (contact support if you have not received one)'}.
+                      Pay <b>{fmtInr(Number(active.total_paise))}</b> with any UPI app and put the order ID{' '}
+                      <b className="mono">{active.order_id}</b> in the payment remarks.
                     </span>
                   </div>
                   <button

@@ -56,8 +56,10 @@ process.on('exit', () => {
 });
 
 // The shared money math is plain ESM (no JSX) — importable directly.
-const { SURCHARGE_BPS, MAX_RUPEES, inrCreditPaise, inrSurchargePaise, inrTotalPaise } =
+const { SURCHARGE_BPS, MAX_CREDIT_PAISE_EXACT, inrCreditPaise, inrSurchargePaise, inrTotalPaise } =
   await import('../client/src/lib/inrPayments.js');
+// Largest whole-rupee amount the integer-precision guard accepts (not a business cap).
+const MAX_WHOLE_RUPEES = Math.floor(MAX_CREDIT_PAISE_EXACT / 100);
 const { config } = await import('../server/config.js');
 const { getDb } = await import('../server/db.js');
 const { hashPassword } = await import('../server/lib/passwords.js');
@@ -153,8 +155,9 @@ await t('I1: ₹100 credit → ₹10 surcharge → ₹110 total', () => {
 await t('I2: fractional rupees round to whole paise; invalid and excessive amounts are rejected', () => {
   assert.strictEqual(inrCreditPaise(100.5), 10050, '₹100.50 is 10050 paise');
   assert.strictEqual(inrCreditPaise('75'), 7500, 'numeric strings are accepted');
-  assert.strictEqual(inrCreditPaise(MAX_RUPEES), MAX_RUPEES * 100, 'the maximum request is accepted');
-  for (const bad of [0, -50, 'abc', '', undefined, null, Infinity, NaN, 1e16, '1e21', MAX_RUPEES + 1, MAX_RUPEES * 100]) {
+  assert.strictEqual(inrCreditPaise(MAX_WHOLE_RUPEES), MAX_WHOLE_RUPEES * 100, 'the largest exact amount is accepted');
+  assert.strictEqual(inrCreditPaise(1_000_000_000), 100_000_000_000, 'there is no ₹1e9 business cap');
+  for (const bad of [0, -50, 'abc', '', undefined, null, Infinity, NaN, 1e16, '1e21', true, 100.555, '100.555', '0x10', MAX_WHOLE_RUPEES + 1]) {
     assert.strictEqual(inrCreditPaise(bad), null, `amount ${String(bad)} must be rejected`);
   }
 });
@@ -240,7 +243,7 @@ await t('I8: a client can request an INR deposit — pending record, correct mat
 
 await t('I9: invalid amounts are rejected and create nothing', async () => {
   const before = db.prepare('SELECT COUNT(*) c FROM inr_deposits').get().c;
-  for (const rupees of [0, -50, 'abc', '', null, 1e16, '1e21', String(MAX_RUPEES + 1)]) {
+  for (const rupees of [0, -50, 'abc', '', null, 1e16, '1e21', String(MAX_WHOLE_RUPEES + 1)]) {
     const r = await call(clientInrRoutes, { method: 'POST', url: '/', body: { rupees }, cookies: clientCookies });
     assert.strictEqual(r.statusCode, 400, `amount ${String(rupees)} must be rejected`);
   }

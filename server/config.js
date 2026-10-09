@@ -105,19 +105,22 @@ export const config = {
     apiKey: String(process.env.THEMAINSMMPROVIDER_API_KEY || '').trim(),
   },
 
-  // VCGetaway INR gateway — PROPOSED configuration names only. The gateway
-  // publishes NO verifiable API documentation (verified 2026-10-04: the site
-  // is a marketing page distributing an Android APK, and the developer's
-  // GitHub repo contains no API spec — no checkout endpoint, authentication
-  // scheme, webhook signature spec, status endpoint, or minimum amount).
-  // These variables are read so the operator's environment is ready, but
-  // NOTHING consumes them yet: no gateway code path exists, and the client
-  // keeps GATEWAY_CONNECTED=false until the official API contract is verified
-  // and a server-side integration is implemented and tested.
+  // INSTA SMM GATEWAY (VC Gateway backend). Secrets are read from the
+  // environment only — never hardcoded, logged, or sent to the browser.
+  //   VCGETAWAY_API_KEY        — server-side only (Render env)
+  //   VCGETAWAY_API_URL        — documented: https://vcgatewaypro.com/payment_api.php
+  //   VCGETAWAY_WEBHOOK_SECRET — empty: no webhook is documented yet
+  //   VCGETAWAY_UPI_ID         — optional override of the documented UPI ID
+  // Automatic verification is NOT implemented: the provider's verification
+  // contract is undocumented, so automatic crediting stays disabled.
   vcGetaway: {
     apiKey: String(process.env.VCGETAWAY_API_KEY || '').trim(),
-    apiUrl: String(process.env.VCGETAWAY_API_URL || '').trim(),
+    apiUrl: String(process.env.VCGETAWAY_API_URL || 'https://vcgatewaypro.com/payment_api.php').trim(),
     webhookSecret: String(process.env.VCGETAWAY_WEBHOOK_SECRET || '').trim(),
+    upiId: String(process.env.VCGETAWAY_UPI_ID || 'paytm.s1dw5n0@pty').trim(),
+    // Hard switch: automatic wallet crediting from a provider signal.
+    // Must stay false until the verification contract is documented and tested.
+    autoCreditEnabled: false,
   },
 
   depositCryptos: [

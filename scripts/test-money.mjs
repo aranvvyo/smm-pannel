@@ -84,4 +84,40 @@ t('deposit conversion is integer-safe (no float drift)', () => {
   assert.strictEqual(Number.isInteger(usdToInr(9999, 73)), true);
 });
 
+// ---- Regression: valid fractional rates must never become ₹0.00 -----------
+// Root cause was Math.round on rupees-per-1000 rates (₹0.45 → 0).
+import { normalizeRate, displayRatePer1k } from '../server/lib/money.js';
+
+t('fractional provider rate with 25% markup stays positive (₹0.40 → ₹0.50, not ₹0)', () => {
+  const sell = applyMarkup(0.4, 'percent', 25);
+  assert.ok(sell > 0, 'must not round to zero');
+  assert.strictEqual(sell, 0.5);
+});
+
+t('sub-₹1 rate with 0% markup is kept exactly (₹0.45 stays ₹0.45)', () => {
+  assert.strictEqual(applyMarkup(0.45, 'percent', 0), 0.45);
+  assert.strictEqual(applyMarkup(0.45, 'fixed', 0), 0.45);
+});
+
+t('fixed markup on a fractional rate is exact', () => {
+  assert.strictEqual(applyMarkup(0.45, 'fixed', 0.5), 0.95);
+});
+
+t('client price_per_1k keeps decimals (₹0.45 is not shown as ₹0)', () => {
+  assert.strictEqual(displayRatePer1k(0.45), 0.45);
+  assert.strictEqual(displayRatePer1k(12.5), 12.5);
+  assert.strictEqual(normalizeRate(0.1 + 0.2), 0.3);   // no float drift in storage
+});
+
+t('a fractional valid price orders at a positive total (₹0.45/1k × 1000 → 45 paise)', () => {
+  const p = computePricing({ qty: 1000, adminRate: applyMarkup(0.36, 'percent', 25), baseRate: 0.36, noProfit: false });
+  assert.strictEqual(p.final, 45);   // ₹0.45 = 45 paise, positive
+});
+
+t('a genuine zero rate still prices to zero (the order guard keeps refusing it)', () => {
+  assert.strictEqual(applyMarkup(0, 'percent', 25), 0);
+  const p = computePricing({ qty: 1000, adminRate: 0, baseRate: 0, noProfit: false });
+  assert.ok(p.final <= 0, 'zero rate must still be refused by the BAD_PRICE guard');
+});
+
 console.log(`\n${pass} tests passed`);

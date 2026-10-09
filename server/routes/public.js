@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
 import { platformStats } from '../lib/analytics.js';
+import { displayRatePer1k } from '../lib/money.js';
 
 const r = Router();
 
@@ -24,7 +25,7 @@ r.get('/landing/services', (req, res) => {
   return res.json({ services: svcs.map((s) => ({
     id: s.id,
     name: s.name, category: s.category, icon: s.icon, speed: s.speed_hint,
-    min: s.min, max: s.max, price_per_1k: Math.round(s.admin_rate),
+    min: s.min, max: s.max, price_per_1k: displayRatePer1k(s.admin_rate),
   })) });
 });
 

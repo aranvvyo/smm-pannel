@@ -283,6 +283,8 @@ CREATE TABLE IF NOT EXISTS inr_deposits (
   verified_by     INTEGER REFERENCES users(id),
   verify_note     TEXT,
   created_at      INTEGER NOT NULL,
-  verified_at     INTEGER
+  verified_at     INTEGER,
+  order_id        TEXT                  -- INSTA SMM GATEWAY order id (server-generated, unique)
 );
 CREATE INDEX IF NOT EXISTS idx_inr_deposits_user ON inr_deposits(user_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inr_deposits_order ON inr_deposits(order_id) WHERE order_id IS NOT NULL;

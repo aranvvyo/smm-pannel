@@ -51,12 +51,28 @@ export function computePricing({ qty, adminRate, baseRate, noProfit = false, cou
   return { base, price, discount, final: price - discount, sellRate, noProfit };
 }
 
+// Rates are RUPEES per 1000 units and are routinely fractional (₹0.45 per
+// 1000 is a normal SMM rate). They must never be rounded to whole rupees:
+// Math.round(0.45) === 0 turned valid cheap services into ₹0.00 prices.
+// Rates are kept to 4 decimal places (sub-paisa precision is retained in
+// storage; money amounts are rounded to paise only when an order total is
+// computed, in priceFor).
+export function normalizeRate(rate) {
+  return Math.round(Number(rate) * 10000) / 10000;
+}
+
 // Selling-rate derivation from provider base rate + markup config.
-// percent: admin_rate = round(provider_rate * (1 + pct/100))
-// fixed:   admin_rate = round(provider_rate) + fixedPaisePer1000  (value stored in paise)
+// percent: admin_rate = provider_rate * (1 + pct/100)
+// fixed:   admin_rate = provider_rate + markupValue  (rupees per 1000)
 export function applyMarkup(providerRate, markupType, markupValue) {
   if (markupType === 'fixed') {
-    return Math.round(providerRate + markupValue);
+    return normalizeRate(Number(providerRate) + Number(markupValue));
   }
-  return Math.round(providerRate * (1 + markupValue / 100));
+  return normalizeRate(Number(providerRate) * (1 + Number(markupValue) / 100));
+}
+
+// Client-facing "price per 1000" in rupees. Must NOT be rounded to a whole
+// rupee — see normalizeRate. Display formatting (fmtInr) handles paise.
+export function displayRatePer1k(rate) {
+  return normalizeRate(rate);
 }

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
 import { requireAuth, currentUser } from '../middleware/auth.js';
-import { priceFor } from '../lib/money.js';
+import { priceFor, displayRatePer1k } from '../lib/money.js';
 import { canonicalizeCategories } from '../lib/providerSync.js';
 import { sendErr } from './_helpers.js';
 
@@ -32,8 +32,9 @@ function mapService(s, noProfit) {
     // Client-safe capability flags (admin route already exposes these).
     refill: Number(s.refill),
     cancel: Number(s.cancel),
-    // price per 1000 for display — the only pricing number clients see
-    price_per_1k: Math.round(rate),
+    // price per 1000 for display — the only pricing number clients see.
+    // Rupees with decimals kept (a whole-rupee round made ₹0.45 show ₹0.00).
+    price_per_1k: displayRatePer1k(rate),
   };
 }
 
@@ -136,7 +137,7 @@ r.get('/:id', requireAuth, (req, res) => {
     max: s.max,
     refill: Number(s.refill),
     cancel: Number(s.cancel),
-    price_per_1k: Math.round(rate),
+    price_per_1k: displayRatePer1k(rate),
   });
 });
 
