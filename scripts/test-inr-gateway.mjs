@@ -69,6 +69,14 @@ const rootDir = config.rootDir;
 
 const db = getDb();
 
+// This suite tests the manual INR workflow in its disposable test database.
+// Production maintenance defaults remain unchanged.
+db.prepare(
+'INSERT INTO settings (key, value) VALUES (?, ?) ' +
+'ON CONFLICT(key) DO UPDATE SET value=excluded.value'
+).run('maint_inr_enabled', '0');
+
+
 // ---------------------------------------------------------------------------
 // Tiny harness (mirrors scripts/test-env-config.mjs)
 // ---------------------------------------------------------------------------
