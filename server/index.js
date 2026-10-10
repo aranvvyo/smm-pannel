@@ -6,6 +6,7 @@ import { getDb } from './db.js';
 import { startOrderTicker } from './lib/orderRouter.js';
 import { startProviderAutoSync } from './lib/providerAutoSync.js';
 import { setupPaymentSimulator, setupApironeMonitor } from './lib/apirone.js';
+import { startInrVerificationPoller } from './lib/inrVerification.js';
 import { bootstrapManagedProvider } from './lib/managedProvider.js';
 
 // Adapter registration (side-effect imports).
@@ -33,6 +34,8 @@ import adminLogRoutes from './routes/admin.logs.js';
 import adminSettingsRoutes from './routes/admin.settings.js';
 import adminWithdrawRoutes from './routes/admin.withdraw.js';
 import adminInrDepositRoutes from './routes/admin.inrDeposits.js';
+import adminDepositMaintenanceRoutes from './routes/admin.depositMaintenance.js';
+import depositStatusRoutes from './routes/depositStatus.js';
 import webhooks from './routes/webhooks.js';
 
 const app = express();
@@ -82,6 +85,7 @@ app.use('/api/orders', clientOrderRoutes);
 // wallet router so /api/deposits/inr is never captured by the wallet
 // router's GET /deposits/:id. (Previously never mounted at all: every
 // request fell through to the catch-all and returned "Not found.")
+app.use('/api/deposit-status', depositStatusRoutes);   // public, read-only banner state
 app.use('/api/deposits/inr', clientInrDepositRoutes);
 app.use('/api', clientWalletRoutes);        // /api/wallet, /api/deposits, /api/cryptos
 app.use('/api/tickets', clientTicketRoutes);
@@ -95,6 +99,7 @@ app.use('/api/admin/dashboard', dashboardRouter);
 // deposits router so /api/admin/deposits/inr is never captured by
 // its /:id route.
 app.use('/api/admin/deposits/inr', adminInrDepositRoutes);
+app.use('/api/admin/deposit-maintenance', adminDepositMaintenanceRoutes);
 app.use('/api/admin/deposits', depositsRouter);
 app.use('/api/admin/users', adminUserRoutes);
 app.use('/api/admin/services', adminServiceRoutes);
@@ -144,6 +149,9 @@ startOrderTicker();
 startProviderAutoSync();
 setupPaymentSimulator();
 setupApironeMonitor();
+// Returns null unless automatic INR crediting is allowed (contract confirmed AND
+// autoCreditEnabled). Today it always returns null, so no poll runs.
+startInrVerificationPoller();
 
 app.listen(config.port, '0.0.0.0', () => {
   console.log(`\n  ${config.brand.name} ready  →  http://localhost:${config.port}`);

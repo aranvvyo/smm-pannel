@@ -109,10 +109,18 @@ console.log('\nSchema — inr_deposits.order_id');
 
 const schemaSql = readFileSync(path.join(ROOT, 'server', 'schema.sql'), 'utf8');
 
-t('fresh schema.sql creates inr_deposits with order_id and a unique partial index', () => {
+// The exact order-id migration db.js runs after the schema on EVERY boot.
+function applyOrderIdMigration(db) {
+  const have = db.prepare('PRAGMA table_info(inr_deposits)').all().some((c) => c.name === 'order_id');
+  if (!have) db.exec('ALTER TABLE inr_deposits ADD COLUMN order_id TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_inr_deposits_order ON inr_deposits(order_id) WHERE order_id IS NOT NULL');
+}
+
+t('fresh schema.sql + migration creates inr_deposits with order_id and a unique partial index', () => {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(schemaSql);
+  applyOrderIdMigration(db);
   const cols = db.prepare('PRAGMA table_info(inr_deposits)').all().map((c) => c.name);
   assert.ok(cols.includes('order_id'), 'order_id column missing');
   const idx = db.prepare("PRAGMA index_list(inr_deposits)").all().find((i) => i.name === 'idx_inr_deposits_order');
@@ -124,6 +132,7 @@ t('duplicate order_id is refused by the database; NULL order_ids may repeat (leg
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(schemaSql);
+  applyOrderIdMigration(db);
   db.exec("INSERT INTO users (email, password_hash, role, name, created_at) VALUES ('a@t.dev','x','client','A',0)");
   const ins = db.prepare(
     'INSERT INTO inr_deposits (user_id, credit_paise, surcharge_paise, total_paise, status, created_at, order_id) VALUES (1,10000,1000,11000,?,0,?)'
@@ -202,10 +211,11 @@ t('formatting: the client formatter uses the same en-IN grouping (ui.jsx)', () =
   assert.ok(/fmtInr = \(paise, digits = 2\) =>[\s\S]*'en-IN'/.test(ui), 'client fmtInr must use en-IN');
 });
 
-t('no fabricated maximum: the deposit page shows the exact limit text and no max amount', () => {
+t('documented limits: the deposit page shows the ₹1.00 minimum and no maximum', () => {
   const page = readFileSync(path.join(ROOT, 'client', 'src', 'pages', 'client', 'VcDeposit.jsx'), 'utf8');
-  assert.ok(page.includes('No minimum or maximum deposit limit. A 10% customer surcharge is added to your payment.'),
+  assert.ok(page.includes('Minimum deposit ₹1.00. No maximum deposit limit. A 10% customer surcharge is added to your payment.'),
     'the exact limit text must be shown');
+  assert.ok(page.includes('INR_MIN_CREDIT_PAISE'), 'the page must enforce the shared minimum');
   assert.ok(!page.includes('MAX_RUPEES'), 'the old cap constant must be gone');
   assert.ok(!/up to \{fmtInr/.test(page), 'no numeric maximum may be rendered');
 });

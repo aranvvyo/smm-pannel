@@ -460,18 +460,26 @@ export function creditDeposit(depositId, { receivedUsdCents, receivedMinor, txHa
 
   db.exec('BEGIN');
   try {
-    db.prepare(
+    const guard = db.prepare(
       `UPDATE deposits SET status=?, paid_usd=?, amount_inr=?, paid_at=?, confirmed_at=?,
         received_minor=CASE WHEN ? > 0 THEN CAST(? AS DOUBLE PRECISION) ELSE received_minor END,
         tx_hash=CASE WHEN CAST(? AS TEXT) IS NOT NULL AND CAST(? AS TEXT) <> '' THEN CAST(? AS TEXT) ELSE tx_hash END,
-        provider_event=COALESCE(provider_event, CAST(? AS TEXT)) WHERE id=?`
+        provider_event=COALESCE(provider_event, CAST(? AS TEXT)) WHERE id=? AND status=? AND COALESCE(paid_usd, 0)=?`
     ).run(status, paidUsdNew, usdToInr(paidUsdNew, rate), now, status === 'confirmed' ? now : deposit.confirmed_at,
       resvMinor, resvMinor, resvHash, resvHash, resvHash,
-      status === 'confirmed' ? 'credited by verified payment' : null, deposit.id);
+      status === 'confirmed' ? 'credited by verified payment' : null, deposit.id, deposit.status, paidUsdBefore);
+    // Guard: the row must still hold the state we read. A concurrent credit
+    // (another process) that already moved it changes 0 rows, so nothing is
+    // credited twice.
+    if (guard.changes !== 1) {
+      db.exec('ROLLBACK');
+      return { ok: false, reason: 'concurrent-update' };
+    }
 
     const user = db.prepare('SELECT * FROM users WHERE id=?').get(deposit.user_id);
-    const newBalance = user.wallet_balance + inr;
-    db.prepare('UPDATE users SET wallet_balance=? WHERE id=?').run(newBalance, user.id);
+    // Atomic arithmetic on the live balance (no read-modify-write).
+    db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id=?').run(inr, user.id);
+    const newBalance = Number(db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(user.id).wallet_balance);
     db.prepare(
       `INSERT INTO transactions (user_id, type, amount_inr, balance_after, ref_id, meta_json, created_at)
        VALUES (?, 'deposit', ?, ?, ?, ?, ?)`
@@ -484,20 +492,26 @@ export function creditDeposit(depositId, { receivedUsdCents, receivedMinor, txHa
 
     const creditedInr = usdToInr(paidUsdNew, rate);
     const simSuffix = deposit.is_simulated ? ' (simulated)' : '';
+    // The customer message is BUILT here but SENT only after COMMIT. A failed
+    // commit therefore never tells the customer they were credited.
+    // fmtUsd takes CENTS; amount_usd is already cents.
+    let notice;
     if (status === 'confirmed') {
       const receivedLine = resvMinor > 0
         ? `${cryptoMinorLabel(deposit.currency, resvMinor)} received`
-        : `Payment of ${fmtUsd(deposit.amount_usd / 100)} received`;
-      notify(user.id, 'deposit', 'Deposit Confirmed',
-        `${receivedLine}${simSuffix}, credited as ${fmtInr(creditedInr)}.`);
+        : `Payment of ${fmtUsd(Number(deposit.amount_usd))} received`;
+      notice = { title: 'Deposit Confirmed',
+        body: `${receivedLine}${simSuffix}, credited as ${fmtInr(creditedInr)}.` };
     } else {
       const partialLine = resvMinor > 0
         ? `Partial payment received: ${cryptoMinorLabel(deposit.currency, resvMinor)} so far`
         : 'A partial payment was received';
-      notify(user.id, 'deposit', 'Deposit Partially Received',
-        `${partialLine}${simSuffix} — ${fmtInr(creditedInr)} credited (${Math.round((paidUsdNew / deposit.amount_usd) * 100)}%). We keep crediting as more arrives.`);
+      notice = { title: 'Deposit Partially Received',
+        body: `${partialLine}${simSuffix} — ${fmtInr(creditedInr)} credited (${Math.round((paidUsdNew / deposit.amount_usd) * 100)}%). We keep crediting as more arrives.` };
     }
     db.exec('COMMIT');
+    try { notify(user.id, 'deposit', notice.title, notice.body); }
+    catch { /* a notification failure never undoes a committed credit */ }
     return { ok: true, inr, status, partial: status === 'in_progress', paid_fraction: paidUsdNew / Number(deposit.amount_usd) };
   } catch (e) {
     db.exec('ROLLBACK');
@@ -512,7 +526,7 @@ export function markExpired(deposit) {
   if (res.changes > 0) {
     try {
       notify(deposit.user_id, 'deposit', 'Deposit Expired',
-        `Your ${fmtUsd(deposit.amount_usd / 100)} ${deposit.currency} invoice expired unpaid. No amount was charged or credited.`);
+        `Your ${fmtUsd(Number(deposit.amount_usd))} ${deposit.currency} invoice expired unpaid. No amount was charged or credited.`);
     } catch { /* never block on a notification */ }
   }
 }

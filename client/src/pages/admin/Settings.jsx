@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { get, post } from '../../api.js';
 import { useToast, fmtInr } from '../../ui.jsx';
+import DepositMaintenanceCard from './DepositMaintenanceCard.jsx';
 
 export default function AdminSettings() {
   const toast = useToast();
@@ -85,6 +86,7 @@ export default function AdminSettings() {
     <>
       <h1 className="page-title">Settings</h1>
       <p className="page-sub">Finance, markup and payment knobs. Only you can see these.</p>
+      <DepositMaintenanceCard />
 
       {/* Apirone section — credentials entered here are stored server-side
           (write-only, never returned by any API) and are required for real

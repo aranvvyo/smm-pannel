@@ -287,3 +287,5 @@ CREATE TABLE IF NOT EXISTS inr_deposits (
   order_id        TEXT                  -- INSTA SMM GATEWAY order id (server-generated, unique)
 );
 CREATE INDEX IF NOT EXISTS idx_inr_deposits_user ON inr_deposits(user_id, status);
+-- The UNIQUE index on order_id is created by the db.js migration (ensureColumns),
+-- after the column is added. Creating it here would fail on existing databases.

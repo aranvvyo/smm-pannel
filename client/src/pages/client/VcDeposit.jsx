@@ -3,8 +3,10 @@ import QRCode from 'qrcode';
 import { get, post } from '../../api.js';
 import { useToast, fmtInr, Icon, timeAgo } from '../../ui.jsx';
 import {
-  SURCHARGE_BPS, inrCreditPaise, inrSurchargePaise, inrTotalPaise, depositErrorMessage,
+  SURCHARGE_BPS, INR_MIN_CREDIT_PAISE, inrCreditPaise, inrSurchargePaise, inrTotalPaise, depositErrorMessage,
 } from '../../lib/inrPayments.js';
+import { useDepositMaintenance, isDepositMaintenanceError } from '../../lib/depositMaintenance.js';
+import DepositMaintenanceBanner from '../../lib/DepositMaintenanceBanner.jsx';
 
 // ---------------------------------------------------------------------------
 // INSTA SMM GATEWAY — INR deposit page (customer side).
@@ -66,6 +68,9 @@ export default function VcDeposit() {
   const [claimBusy, setClaimBusy] = useState(false); // recording a claim
   const [err, setErr] = useState('');
   const [qrUrl, setQrUrl] = useState('');           // QR image for the server's UPI URI
+  // Maintenance switch for INR. Blocks only starting a request or recording a claim.
+  const maint = useDepositMaintenance();
+  const inrOff = maint.inr.maintenance;
 
   // Money math — all integer paise, from the shared INR helpers (the
   // single source of truth). The customer picks how much wallet CREDIT
@@ -75,7 +80,8 @@ export default function VcDeposit() {
   const creditPaise = useMemo(() => inrCreditPaise(rupees) || 0, [rupees]);
   const surchargePaise = inrSurchargePaise(creditPaise);
   const finalPaise = inrTotalPaise(creditPaise);
-  const valid = creditPaise > 0;
+  // Documented ₹1.00 minimum on the wallet credit (the server enforces it too).
+  const valid = creditPaise >= INR_MIN_CREDIT_PAISE;
 
   const load = async () => {
     const d = await get('/api/deposits/inr');
@@ -127,7 +133,11 @@ export default function VcDeposit() {
   // (server-generated order ID, server-computed fee). Nothing is credited.
   const create = async (e) => {
     e.preventDefault();
-    if (!valid) { setErr('Enter a valid amount in ₹ (up to 2 decimal places).'); return; }
+    if (inrOff) return;
+    if (!valid) {
+      setErr(creditPaise > 0 ? 'The minimum deposit is ₹1.00.' : 'Enter a valid amount in ₹ (up to 2 decimal places).');
+      return;
+    }
     setErr(''); setBusy(true);
     try {
       const d = await post('/api/deposits/inr', { rupees: Number(rupees) });
@@ -135,7 +145,10 @@ export default function VcDeposit() {
       setHist((h) => [d.deposit, ...h.filter((x) => x.id !== d.deposit.id)]);
       setRupees('');
       toast(`Deposit requested — pay ${fmtInr(d.deposit.total_paise)} (includes ${fmtInr(d.deposit.surcharge_paise)} customer surcharge).`, 'success');
-    } catch (x) { setErr(depositErrorMessage(x)); } finally { setBusy(false); }
+    } catch (x) {
+      if (isDepositMaintenanceError(x)) maint.markMaintenance('inr', x.message);
+      setErr(isDepositMaintenanceError(x) ? x.message : depositErrorMessage(x));
+    } finally { setBusy(false); }
   };
 
   // Step 2 — "I Have Paid". RECORDS A CLAIM ONLY: it transitions the
@@ -143,7 +156,7 @@ export default function VcDeposit() {
   // treated as proof of payment and never credits the wallet — only an
   // admin verification of the actual payment can do that.
   const claim = async () => {
-    if (!active) return;
+    if (!active || inrOff) return;
     setErr('');
     setClaimBusy(true);
     try {
@@ -151,7 +164,10 @@ export default function VcDeposit() {
       setActive(d.deposit);
       setHist((h) => h.map((x) => (x.id === d.deposit.id ? d.deposit : x)));
       toast('Claim recorded — awaiting admin verification. Your wallet is credited only after verification.', 'success');
-    } catch (x) { setErr(depositErrorMessage(x)); } finally { setClaimBusy(false); }
+    } catch (x) {
+      if (isDepositMaintenanceError(x)) maint.markMaintenance('inr', x.message);
+      setErr(isDepositMaintenanceError(x) ? x.message : depositErrorMessage(x));
+    } finally { setClaimBusy(false); }
   };
 
   // Future automated flow — unreachable while GATEWAY_CONNECTED is false.
@@ -197,6 +213,7 @@ export default function VcDeposit() {
         Add funds with UPI through INSTA SMM GATEWAY. Your wallet is credited only after
         the payment is verified, and only with the credit amount you requested.
       </p>
+      <DepositMaintenanceBanner status={maint.inr} label="INR" />
 
       <div className="vc-grid">
         {/* Left — display-only 3D payment card preview + amount picker */}
@@ -259,10 +276,10 @@ export default function VcDeposit() {
                 onChange={(e) => setRupees(e.target.value)}
               />
               <p className="faint" style={{ fontSize: '0.82rem', marginTop: 8 }}>
-                No minimum or maximum deposit limit. A 10% customer surcharge is added to your payment.
+                Minimum deposit ₹1.00. No maximum deposit limit. A 10% customer surcharge is added to your payment.
               </p>
               {err && <div className="field-error"><Icon name="alert" size={15} /> {err}</div>}
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} disabled={busy || !valid}>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} disabled={busy || !valid || inrOff}>
                 {busy ? 'Requesting…' : 'Request deposit'}
               </button>
               <p className="faint" style={{ fontSize: '0.78rem', marginTop: 8, lineHeight: 1.5 }}>
@@ -339,7 +356,7 @@ export default function VcDeposit() {
                     className="btn btn-primary btn-lg"
                     style={{ width: '100%', marginTop: 14 }}
                     onClick={claim}
-                    disabled={claimBusy}
+                    disabled={claimBusy || inrOff}
                   >
                     <Icon name="check" size={16} stroke={2} />
                     {claimBusy ? 'Recording…' : 'I Have Paid'}

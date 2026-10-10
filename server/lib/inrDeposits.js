@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { generateOrderId, buildUpiUri, GATEWAY_NAME } from './inrOrder.js';
 import { isUniqueViolation } from './pgDialect.js';
 // Single source of truth for the INR money math (shared with the client).
-import { inrCreditPaise, inrSurchargePaise, inrTotalPaise } from '../../client/src/lib/inrPayments.js';
+import { inrCreditPaise, inrSurchargePaise, inrTotalPaise, INR_MIN_CREDIT_PAISE } from '../../client/src/lib/inrPayments.js';
 
 // ---------------------------------------------------------------------------
 // INSTA SMM GATEWAY — INR deposit workflow.
@@ -71,6 +71,9 @@ export function toClientView(d) {
 export function createInrDeposit({ userId, rupees, invoiceRef } = {}) {
   const credit = inrCreditPaise(rupees);
   if (credit === null) return { ok: false, reason: 'invalid-amount' };
+  // Documented minimum (₹1.00 wallet credit). Enforced here, before any row
+  // is written, so no below-minimum deposit can exist.
+  if (credit < INR_MIN_CREDIT_PAISE) return { ok: false, reason: 'below-minimum' };
   const surcharge = inrSurchargePaise(credit);
   const total = inrTotalPaise(credit);
   const db = getDb();
@@ -136,8 +139,9 @@ export function verifyInrDeposit({ adminId, depositId, paymentRef, invoiceRef, n
     if (res.changes === 0) { db.exec('ROLLBACK'); return { ok: false, reason: 'already-terminal' }; }
 
     const user = db.prepare('SELECT * FROM users WHERE id=?').get(deposit.user_id);
-    const newBalance = Number(user.wallet_balance) + credit;
-    db.prepare('UPDATE users SET wallet_balance=? WHERE id=?').run(newBalance, user.id);
+    // Atomic arithmetic on the live balance (no read-modify-write).
+    db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id=?').run(credit, user.id);
+    const newBalance = Number(db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(user.id).wallet_balance);
     db.prepare(
       `INSERT INTO transactions (user_id, type, amount_inr, balance_after, ref_id, meta_json, created_at)
        VALUES (?, 'deposit', ?, ?, ?, ?, ?)`

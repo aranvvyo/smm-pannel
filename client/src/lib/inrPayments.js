@@ -12,9 +12,13 @@
 // It is the single source of truth for the INR deposit math used by the
 // VCGetaway deposit page (client/src/pages/client/VcDeposit.jsx).
 //
-// No minimum deposit is imposed here — the gateway's minimum (if any) is
-// unknown until its official API documentation is available.
+// Minimum deposit: ₹1.00 wallet credit, the documented VC Gateway minimum.
+// The check is on the CREDIT amount; the customer's total is always higher,
+// so it also satisfies the provider minimum on the amount actually paid.
 // ---------------------------------------------------------------------------
+
+// Documented minimum wallet credit in integer paise (₹1.00).
+export const INR_MIN_CREDIT_PAISE = 100;
 
 // 10% customer surcharge, expressed in basis points (1000 bp = 10%).
 export const SURCHARGE_BPS = 1000;

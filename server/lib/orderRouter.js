@@ -392,12 +392,20 @@ export async function cancelOrder({ admin, orderId }) {
 
   db.exec('BEGIN');
   try {
-    db.prepare("UPDATE orders SET status='CANCELED', remains=?, updated_at=? WHERE id=?")
-      .run(remains, now, o.id);
+    // ATOMIC CLAIM. Only the transaction that moves the order out of
+    // PENDING/IN_PROGRESS may refund. A concurrent cancel that read the same
+    // status before our await changes 0 rows here and refunds nothing.
+    const claim = db.prepare(
+      "UPDATE orders SET status='CANCELED', remains=?, updated_at=? WHERE id=? AND status IN ('PENDING','IN_PROGRESS')"
+    ).run(remains, now, o.id);
+    if (claim.changes !== 1) {
+      const e = new Error('Only pending/in-progress orders can be canceled.'); e.code = 'BAD_STATUS';
+      throw e;   // the catch below rolls back
+    }
     if (refundInr > 0) {
-      const user = db.prepare('SELECT wallet_balance, total_spent_inr FROM users WHERE id=?').get(o.user_id);
-      const newBalance = user.wallet_balance + refundInr;
-      db.prepare('UPDATE users SET wallet_balance=? WHERE id=?').run(newBalance, o.user_id);
+      // Atomic arithmetic: never a read-modify-write of the balance.
+      db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id=?').run(refundInr, o.user_id);
+      const newBalance = Number(db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(o.user_id).wallet_balance);
       db.prepare(
         `INSERT INTO transactions (user_id, type, amount_inr, balance_after, ref_id, meta_json, created_at)
          VALUES (?, 'refund', ?, ?, ?, ?, ?)`

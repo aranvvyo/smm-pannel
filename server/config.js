@@ -66,6 +66,16 @@ export const config = {
     demo_auto_confirm: '0',
     demo_confirm_seconds: '8',
     demo_payout_seconds: '6', // demo provider simulate latency
+    // Deposit maintenance (see server/lib/depositMaintenance.js). Seeded only
+    // when missing, so a restart never overwrites a stored switch.
+    // INR: ON by default — automatic verification is not yet confirmed.
+    // Crypto: OFF by default — the existing crypto flow stays open.
+    maint_inr_enabled: '1',
+    maint_inr_message: '',
+    maint_inr_version: '0',
+    maint_crypto_enabled: '0',
+    maint_crypto_message: '',
+    maint_crypto_version: '0',
     // Global default markup applied to freshly-synced provider services
     // (per-service markup overrides; per-provider markup overrides global).
     global_markup_type: 'percent',
@@ -118,8 +128,10 @@ export const config = {
     apiUrl: String(process.env.VCGETAWAY_API_URL || 'https://vcgatewaypro.com/payment_api.php').trim(),
     webhookSecret: String(process.env.VCGETAWAY_WEBHOOK_SECRET || '').trim(),
     upiId: String(process.env.VCGETAWAY_UPI_ID || 'paytm.s1dw5n0@pty').trim(),
-    // Hard switch: automatic wallet crediting from a provider signal.
-    // Must stay false until the verification contract is documented and tested.
+    // Automatic wallet crediting from a verified provider status. This flag is
+    // necessary but NOT sufficient: crediting also requires a confirmed
+    // verification contract in vcGatewayAdapter.js. Keep false until both are
+    // reviewed and tested.
     autoCreditEnabled: false,
   },
 

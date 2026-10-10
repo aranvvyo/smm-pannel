@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { get, post } from '../../api.js';
 import { useToast, fmtInr, fmtUsd, fmtRateINR, timeAgo, Icon } from '../../ui.jsx';
 import QRCode from 'qrcode';
+import { useDepositMaintenance, isDepositMaintenanceError } from '../../lib/depositMaintenance.js';
+import DepositMaintenanceBanner from '../../lib/DepositMaintenanceBanner.jsx';
 
 const CUR = {
   LTC: { label: 'Litecoin', short: 'LTC', chain: 'Litecoin network', fmt: 'LTC', decimals: 8, code: 'ltc' },
@@ -41,6 +43,10 @@ export default function Deposit() {
   const [now, setNow] = useState(Date.now());
   const [copyState, setCopyState] = useState(null); // 'ok' | 'err' | null
   const [qrDataUrl, setQrDataUrl] = useState('');
+  // Maintenance switch for crypto. Blocks only creating a new invoice; open
+  // invoices, their QR and history stay available.
+  const maint = useDepositMaintenance();
+  const cryptoOff = maint.crypto.maintenance;
 
   const refresh = async () => {
     const [c, h] = await Promise.all([get('/api/cryptos'), get('/api/deposits')]);
@@ -102,6 +108,7 @@ export default function Deposit() {
 
   const create = async (e) => {
     e.preventDefault();
+    if (cryptoOff) return;
     const amt = Number(amountUsd);
     if (!Number.isFinite(amt) || amt <= 0) { setErr('Enter a valid amount in USD.'); return; }
     setErr(''); setBusy(true);
@@ -111,7 +118,10 @@ export default function Deposit() {
       setHist((h) => [d.deposit, ...h.filter((x) => x.id !== d.deposit.id)]);
       setAmountUsd('');
       toast(`Deposit invoice ready — ${fmtCrypto(d.deposit.currency, d.deposit.amount_minor)} ${CUR[d.deposit.currency]?.fmt} to the address.`, 'success');
-    } catch (x) { setErr(x.message); } finally { setBusy(false); }
+    } catch (x) {
+      if (isDepositMaintenanceError(x)) maint.markMaintenance('crypto', x.message);
+      setErr(x.message);
+    } finally { setBusy(false); }
   };
 
   // Task 3 — real clipboard write with a legacy textarea fallback, and an honest
@@ -154,6 +164,7 @@ export default function Deposit() {
         Pay in USD with crypto — credited to your wallet in INR at {fmtRateINR(rate)} per 1 USD.
         {sim && <span className="badge badge-warn" style={{ marginLeft: 10 }}>Simulated</span>}
       </p>
+      <DepositMaintenanceBanner status={maint.crypto} label="Crypto" />
 
       <div className="deposit-layout">
         {/* Left column */}
@@ -198,7 +209,7 @@ export default function Deposit() {
                 })()
               )}
               {err && <div className="field-error"><Icon name="alert" size={15} /> {err}</div>}
-              <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} disabled={busy}>
+              <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} disabled={busy || cryptoOff}>
                 {busy ? 'Creating invoice…' : 'Create Deposit Invoice'}
               </button>
             </form>

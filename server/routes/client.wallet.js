@@ -7,6 +7,7 @@ import { createCryptoInvoice, isApironeConfigured } from '../lib/apirone.js';
 import { startOfISTDay } from '../lib/ist.js';
 import { notify } from '../lib/notifier.js';
 import { ah, sendErr } from './_helpers.js';
+import { assertDepositsOpen } from '../lib/depositMaintenance.js';
 
 const r = Router();
 
@@ -79,6 +80,10 @@ r.get('/cryptos', requireAuth, (req, res) => {
 
 // POST /api/deposits — create a crypto deposit invoice (USD amount).
 r.post('/deposits', requireAuth, ah(async (req, res) => {
+  // Maintenance gate: no new crypto invoice (and no provider call) while paused.
+  // Webhooks and reconciliation of existing invoices are not affected.
+  try { assertDepositsOpen('crypto'); }
+  catch (e) { return sendErr(res, 503, e.message, e.code); }
   let amountUsd = Number(req.body?.amount_usd);
   if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
     return sendErr(res, 400, 'Enter a valid deposit amount in USD.');
@@ -118,7 +123,7 @@ r.post('/deposits', requireAuth, ah(async (req, res) => {
   // after a real (or explicitly simulated) payment event.
   try {
     notify(req.user.id, 'deposit', 'Deposit Created',
-      `${fmtUsd(usdCents / 100)} invoice in ${currency} — waiting for payment. Notify you when it is confirmed.`);
+      `${fmtUsd(usdCents)} invoice in ${currency} — waiting for payment. Notify you when it is confirmed.`);
   } catch { /* never block on a notification */ }
 
   return res.status(201).json({
