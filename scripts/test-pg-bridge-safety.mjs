@@ -192,6 +192,10 @@ await t('parent: SIGTERM during setup is handled — the handler runs, exits 143
   while (!out.includes(READY)) {
     if (Date.now() > readyDeadline) {
       parent.kill('SIGKILL');
+      // Close the dummy listener before failing. An open server keeps the
+      // event loop alive, so without this the test prints its failure and then
+      // hangs until an outer timeout kills it.
+      listener.close();
       assert.fail(`parent never reached setup (signal handlers never registered)\n${out}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
