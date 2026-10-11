@@ -11,21 +11,10 @@ export function fmtRatePer1k(rupees) {
   return '₹' + r.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
 }
 
-// Platform groups, in the order they are shown to customers. Every category
-// lands in exactly one group; anything unrecognised goes to "other".
-export const PLATFORM_GROUPS = [
-  { key: 'instagram', label: 'Instagram', emoji: '📸' },
-  { key: 'youtube', label: 'YouTube', emoji: '▶️' },
-  { key: 'telegram', label: 'Telegram', emoji: '✈️' },
-  { key: 'x', label: 'X', emoji: '𝕏' },
-  { key: 'facebook', label: 'Facebook', emoji: '📘' },
-  { key: 'tiktok', label: 'TikTok', emoji: '🎵' },
-  { key: 'other', label: 'Other platforms', emoji: '🌐' },
-];
-
-// Word-boundary matches only, checked in this order. "x" is matched only as
-// a whole name ("X", "X Followers"), never as a word inside other text such as
-// "Likes x 2", so unrelated categories are not tagged as X.
+// Platform detection from a category or service name, used only for the
+// small emoji shown before category names. Word-boundary matches only, checked
+// in this order. "x" matches only as a whole name ("X", "X Followers"), never
+// as a word inside other text such as "Likes x 2".
 const PLATFORM_PATTERNS = [
   ['instagram', /\binstagram\b|\big\b/i],
   ['youtube', /\byoutube\b|\byt\b/i],
@@ -35,7 +24,19 @@ const PLATFORM_PATTERNS = [
   ['x', /\btwitter\b|^\s*x\s*$|^\s*x\s+\S/i],
 ];
 
-// Platform key ("instagram", …, or "other") for a category or service name.
+// Existing project icon names (client/src/ui.jsx) used as platform markers.
+// These are simple, neutral glyphs, not brand logos, so no misleading logo is
+// implied. Platforms without a matching icon get no marker.
+const PLATFORM_ICON = {
+  instagram: 'camera',
+  youtube: 'play',
+  telegram: 'send',
+  x: 'birds',
+  facebook: 'thumbsUp',
+  tiktok: 'music',
+};
+
+// Platform key ("instagram", …) or "other" for a category or service name.
 export function platformOf(name) {
   const n = String(name || '');
   for (const [key, re] of PLATFORM_PATTERNS) {
@@ -44,33 +45,15 @@ export function platformOf(name) {
   return 'other';
 }
 
-// Icon for a recognised platform, from the category or service name. Empty
-// for unrecognised names, so no icon is invented for them. (The "other" group
-// has its own fallback icon, used only as a group label.)
-export function platformEmoji(name) {
-  const key = platformOf(name);
-  if (key === 'other') return '';
-  return PLATFORM_GROUPS.find((g) => g.key === key)?.emoji ?? '';
+// Icon name for a recognised platform, or null for anything else.
+export function platformIcon(name) {
+  return PLATFORM_ICON[platformOf(name)] ?? null;
 }
 
-// Non-empty categories grouped by platform, in PLATFORM_GROUPS order. Groups
-// with no categories are dropped, so empty platforms never appear.
-export function groupCategoriesByPlatform(categories) {
-  const buckets = new Map(PLATFORM_GROUPS.map((g) => [g.key, []]));
-  for (const c of categories || []) {
-    if (!c || !Array.isArray(c.services) || c.services.length === 0) continue;
-    buckets.get(platformOf(c.name)).push(c);
-  }
-  return PLATFORM_GROUPS
-    .map((g) => {
-      const cats = buckets.get(g.key);
-      return {
-        ...g,
-        categories: cats,
-        serviceCount: cats.reduce((n, c) => n + c.services.length, 0),
-      };
-    })
-    .filter((g) => g.categories.length > 0);
+// Categories that contain at least one service, in their given order. Empty
+// and malformed categories are dropped so they never reach the dropdown.
+export function usableCategories(categories) {
+  return (categories || []).filter((c) => c && Array.isArray(c.services) && c.services.length > 0);
 }
 
 // "#1234" label used for the dropdown and the detail panel. The provider

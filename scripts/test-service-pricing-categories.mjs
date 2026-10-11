@@ -6,7 +6,7 @@ import { normalizeRate, applyMarkup, priceFor } from '../server/lib/money.js';
 import { assessServicePrice, isCustomerVisible, REVIEW_RATE_RUPEES } from '../server/lib/servicePrice.js';
 import { validateCommentOrder, normalizeCommentLines } from '../server/lib/commentOrder.js';
 import { canonicalizeCategories, categoryKey } from '../server/lib/providerSync.js';
-import { fmtRatePer1k, platformEmoji, platformOf, serviceIdLabel, serviceOptionLabel, groupCategoriesByPlatform } from '../client/src/lib/serviceFormat.js';
+import { fmtRatePer1k, platformIcon, platformOf, serviceIdLabel, serviceOptionLabel, usableCategories } from '../client/src/lib/serviceFormat.js';
 import { filterServices } from '../client/src/lib/serviceSearch.js';
 import { commentLines, commentProblem } from '../client/src/lib/commentLines.js';
 
@@ -87,15 +87,7 @@ t('sync derives the same category slug for case and whitespace variants', () => 
   assert.notStrictEqual(categoryKey('Instagram Views'), categoryKey('Instagram Likes'));
 });
 t('platform icons: Instagram, YouTube, TikTok, X, Facebook', () => {
-  assert.strictEqual(platformEmoji('Instagram Views'), '📸');
-  assert.strictEqual(platformEmoji('YouTube Watch Time'), '▶️');
-  assert.strictEqual(platformEmoji('TikTok Likes'), '🎵');
-  assert.strictEqual(platformEmoji('Tik Tok Followers'), '🎵');
-  assert.strictEqual(platformEmoji('X (Twitter) Followers'), '𝕏');
-  assert.strictEqual(platformEmoji('Facebook Page Likes'), '📘');
   // Telegram now has its own platform group (✈️). Updated when the platform list was added.
-  assert.strictEqual(platformEmoji('Telegram Members'), '✈️');
-  assert.strictEqual(platformEmoji('Random Gadgets'), '', 'no icon for unrelated platforms');
 });
 
 console.log('Service ID search');
@@ -163,7 +155,7 @@ t('client validation agrees with the server on the same inputs', () => {
   assert.deepStrictEqual(normalizeCommentLines(' a \n\n b '), commentLines(' a \n\n b '));
 });
 
-console.log('Platform groups and option labels');
+console.log('Platform detection and option labels');
 t('platform keys: Instagram, YouTube, Telegram, X, Facebook, TikTok and other', () => {
   assert.strictEqual(platformOf('Instagram Comments New'), 'instagram');
   assert.strictEqual(platformOf('YouTube Watch Time'), 'youtube');
@@ -173,37 +165,28 @@ t('platform keys: Instagram, YouTube, Telegram, X, Facebook, TikTok and other', 
   assert.strictEqual(platformOf('Facebook Post Likes'), 'facebook');
   assert.strictEqual(platformOf('TikTok Likes'), 'tiktok');
   assert.strictEqual(platformOf('Random Gadgets'), 'other');
+  assert.strictEqual(platformIcon('Instagram Views'), 'camera');
+  assert.strictEqual(platformIcon('YouTube Watch Time'), 'play');
+  assert.strictEqual(platformIcon('Telegram Members'), 'send');
+  assert.strictEqual(platformIcon('X (Twitter) Followers'), 'birds');
+  assert.strictEqual(platformIcon('Facebook Page Likes'), 'thumbsUp');
+  assert.strictEqual(platformIcon('TikTok Likes'), 'music');
+  assert.strictEqual(platformIcon('Random Gadgets'), null, 'no marker for unrelated platforms');
+  assert.ok(!/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\u{1D400}-\u{1D7FF}]/u.test(platformIcon('Instagram Views') ?? ''), 'icons are names, not emoji');
 });
 t('a standalone "x" inside other text does not tag a category as X', () => {
   assert.strictEqual(platformOf('Likes x 2 bonus'), 'other');
   assert.strictEqual(platformOf('Views x10'), 'other');
 });
-t('Instagram categories are never placed in the Facebook or YouTube groups', () => {
-  const groups = groupCategoriesByPlatform([
-    { id: 1, name: 'Facebook Post Likes', services: [{ id: 1 }] },
-    { id: 2, name: 'Instagram Comments New', services: [{ id: 2 }] },
-    { id: 3, name: 'YouTube Views', services: [{ id: 3 }] },
-  ]);
-  const byKey = Object.fromEntries(groups.map((g) => [g.key, g.categories.map((c) => c.id)]));
-  assert.deepStrictEqual(byKey.facebook, [1]);
-  assert.deepStrictEqual(byKey.instagram, [2]);
-  assert.deepStrictEqual(byKey.youtube, [3]);
-});
-t('empty categories and platforms with nothing usable are hidden', () => {
-  const groups = groupCategoriesByPlatform([
+t('usable categories drop empty and malformed entries, keeping order', () => {
+  const kept = usableCategories([
     { id: 1, name: 'TikTok Likes', services: [] },
     { id: 2, name: 'Facebook Likes', services: [{ id: 9 }] },
     null,
+    { id: 3, name: 'Instagram Views' },
+    { id: 4, name: 'YouTube Views', services: [{ id: 10 }] },
   ]);
-  assert.deepStrictEqual(groups.map((g) => g.key), ['facebook']);
-  assert.strictEqual(groups[0].serviceCount, 1);
-});
-t('groups keep the fixed display order regardless of input order', () => {
-  const groups = groupCategoriesByPlatform([
-    { id: 1, name: 'TikTok Likes', services: [{ id: 1 }] },
-    { id: 2, name: 'Instagram Likes', services: [{ id: 2 }] },
-  ]);
-  assert.deepStrictEqual(groups.map((g) => g.key), ['instagram', 'tiktok']);
+  assert.deepStrictEqual(kept.map((c) => c.id), [2, 4]);
 });
 t('option label shows the provider ID and a short one-line name', () => {
   const label = serviceOptionLabel({ id: 7, provider_service_id: 6197, name: 'Facebook Post Likes 👍 Hidden Data [ Max 10K ] 10k/day | No Refill ⚠️ | Instant Start' });

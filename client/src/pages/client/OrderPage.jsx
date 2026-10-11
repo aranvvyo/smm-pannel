@@ -4,7 +4,7 @@ import { get, post } from '../../api.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useToast, fmtInr, StatusBadge, Icon, Empty } from '../../ui.jsx';
 import { createQuoteFlow } from '../../lib/quoteFlow.js';
-import { fmtRatePer1k, platformOf, serviceIdLabel, serviceOptionLabel, groupCategoriesByPlatform } from '../../lib/serviceFormat.js';
+import { fmtRatePer1k, platformIcon, serviceIdLabel, serviceOptionLabel, usableCategories } from '../../lib/serviceFormat.js';
 import { filterServices } from '../../lib/serviceSearch.js';
 import { commentLines, commentProblem } from '../../lib/commentLines.js';
 
@@ -16,13 +16,15 @@ export default function OrderPage() {
   const toast = useToast();
 
   const [cats, setCats] = useState([]);
-  const [platformKey, setPlatformKey] = useState('');
   const [catId, setCatId] = useState('');
   const [serviceId, setServiceId] = useState('');
   const [svc, setSvc] = useState(null);
   const [link, setLink] = useState('');
   const [qty, setQty] = useState('');
   const [coupon, setCoupon] = useState('');
+  // Coupon entry is hidden until "Have a coupon?" is tapped. Collapsing it
+  // only hides the field: the typed or applied code is kept.
+  const [couponOpen, setCouponOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [placing, setPlacing] = useState(false);
   const [placed, setPlaced] = useState(null);
@@ -76,9 +78,8 @@ export default function OrderPage() {
     return [...seen.values()];
   }, [cats]);
 
-  // Platform groups (Instagram, YouTube, …) built from the deduplicated
-  // categories. Empty categories and empty platforms are never offered.
-  const platformGroups = useMemo(() => groupCategoriesByPlatform(catsDeduped), [catsDeduped]);
+  // Categories that actually contain services. Empty ones are never offered.
+  const categories = useMemo(() => usableCategories(catsDeduped), [catsDeduped]);
 
   const allServices = useMemo(
     () => catsDeduped.flatMap((c) => c.services.map((s) => ({
@@ -92,57 +93,28 @@ export default function OrderPage() {
     [catsDeduped]
   );
 
-  // Categories offered by the platform selector: only the chosen platform's
-  // categories, or every non-empty category when "All platforms" is selected.
-  const visibleCats = useMemo(() => {
-    if (!platformKey) return catsDeduped.filter((c) => c.services.length > 0);
-    return platformGroups.find((g) => g.key === platformKey)?.categories || [];
-  }, [platformKey, platformGroups, catsDeduped]);
-
   const services = useMemo(() => {
-    // Narrowest scope wins: a category, else a platform, else everything.
-    // Search matches an exact service ID first, then keywords (see
-    // client/src/lib/serviceSearch.js).
-    let base = allServices;
-    if (catId) {
-      base = allServices.filter((s) => s.category_id === Number(catId));
-    } else if (platformKey) {
-      const ids = new Set(visibleCats.map((c) => c.id));
-      base = allServices.filter((s) => ids.has(s.category_id));
-    }
+    // Within the selected category only; "All categories" (catId '')
+    // searches across every eligible service. Search matches an exact
+    // service ID first, then keywords (see client/src/lib/serviceSearch.js).
+    const base = catId ? allServices.filter((s) => s.category_id === Number(catId)) : allServices;
     const matched = filterServices(base, search);
     // Keep the selected service in the list, so the native select never
     // shows a stale or blank choice after a search narrows the results.
     if (svc && !matched.some((s) => s.id === svc.id)) return [svc, ...matched];
     return matched;
-  }, [allServices, catId, platformKey, visibleCats, search, svc]);
+  }, [allServices, catId, search, svc]);
 
   const selectService = (id) => {
     setServiceId(id);
     const found = allServices.find((s) => s.id === Number(id));
     setSvc(found || null);
     if (found && !catId) setCatId(found.category_id);
-    if (found && !platformKey) setPlatformKey(platformOf(found.category_name));
     quoteFlow.invalidate();
     // A quantity that is stale for the newly selected service
     // (outside its min/max bounds) is cleared, so validation
     // and the quote never reference an invalid value.
     if (found && qty !== '' && (Number(qty) < found.min || Number(qty) > found.max)) setQty('');
-  };
-
-  // Platform change: a selected category or service that belongs to another
-  // platform is cleared, so the form never shows a mismatched pair.
-  const changePlatform = (key) => {
-    setPlatformKey(key);
-    if (catId) {
-      const cat = catsDeduped.find((c) => c.id === Number(catId));
-      if (cat && key && platformOf(cat.name) !== key) setCatId('');
-    }
-    if (svc && key && platformOf(svc.category_name) !== key) {
-      setServiceId('');
-      setSvc(null);
-      quoteFlow.invalidate();
-    }
   };
 
   // Category change: keep the selected service only when it still
@@ -308,39 +280,27 @@ export default function OrderPage() {
         </div>
       )}
 
-      <form onSubmit={place} className="card" style={{ maxWidth: 700 }}>
-        {/* Category picker — one compact dropdown. A native select gives
-            mobile users the OS picker (usable on Android + desktop),
-            reveals options only when opened, and scrolls natively when
-            there are many categories — the page never grows with the
-            catalog. */}
-        <label className="label" htmlFor="platform-select">Platform</label>
-        {providerConfigured === null ? (
-          <p className="faint" style={{ fontSize: '0.9rem' }}>Loading services…</p>
-        ) : platformGroups.length > 0 ? (
-          <div className="select-shell">
-            <span className="select-shell-icon" aria-hidden="true"><Icon name="layers" size={16} /></span>
-            <select id="platform-select" className="select-shell-input" value={platformKey} onChange={(e) => changePlatform(e.target.value)}>
-              <option value="">All platforms · {allServices.length.toLocaleString()} services</option>
-              {platformGroups.map((g) => (
-                <option key={g.key} value={g.key}>{g.emoji} {g.label} · {g.serviceCount.toLocaleString()} services</option>
-              ))}
-            </select>
-            <span className="select-shell-caret" aria-hidden="true"><Icon name="chevronDown" size={16} /></span>
-          </div>
-        ) : null}
+      <form onSubmit={place} className="card order-form" style={{ maxWidth: 700 }}>
+        {/* 1. Search — finds services by provider ID or by name. */}
+        <label className="label" htmlFor="svc-search">Search services</label>
+        <div className="input-shell">
+          <Icon name="search" size={16} style={{ color: 'var(--faint)' }} />
+          <input id="svc-search" className="input-inner" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Service ID or name, e.g. 6197 or likes" autoComplete="off" />
+        </div>
 
+        {/* 2. Category — compact native dropdown (opens only when tapped). */}
         <label className="label" htmlFor="cat-select">Category</label>
         {providerConfigured === null ? (
           <p className="faint" style={{ fontSize: '0.9rem' }}>Loading services…</p>
-        ) : cats.length > 0 ? (
+        ) : categories.length > 0 ? (
           <div className="select-shell">
             <span className="select-shell-icon" aria-hidden="true">
-              <Icon name={showCategory && VALID_ICONS.has(showCategory.icon) ? showCategory.icon : 'layers'} size={16} />
+              <Icon name={showCategory && platformIcon(showCategory.name) ? platformIcon(showCategory.name) : (showCategory && VALID_ICONS.has(showCategory.icon) ? showCategory.icon : 'layers')} size={16} />
             </span>
             <select id="cat-select" className="select-shell-input" value={catId} onChange={(e) => changeCategory(e.target.value)}>
-              <option value="">{platformKey ? 'All categories in this platform' : 'All categories'} · {(platformKey ? visibleCats.reduce((n, c) => n + c.services.length, 0) : allServices.length).toLocaleString()} services</option>
-              {visibleCats.map((c) => (
+              <option value="">All categories · {allServices.length.toLocaleString()} services</option>
+              {categories.map((c) => (
                 <option key={c.id} value={c.id}>{c.name} · {c.services.length.toLocaleString()} services</option>
               ))}
             </select>
@@ -354,16 +314,9 @@ export default function OrderPage() {
           <Empty icon="package" text="No services available — provider not configured." />
         )}
 
-        {/* Service search — filters within the selected category */}
-        <label className="label">Search services</label>
-        <div className="input-shell">
-          <Icon name="search" size={16} style={{ color: 'var(--faint)' }} />
-          <input className="input-inner" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Name, keyword or service ID (e.g. 1234)" />
-        </div>
-
-        <label className="label">Service</label>
-        <select className="select" value={serviceId} onChange={(e) => selectService(e.target.value)}>
+        {/* 3. Service — one compact dropdown; the ID leads each option. */}
+        <label className="label" htmlFor="svc-select">Service</label>
+        <select id="svc-select" className="select" value={serviceId} onChange={(e) => selectService(e.target.value)}>
           <option value="">{serviceEmptyMessage}</option>
           {services.map((s) => (
             <option key={s.id} value={s.id}>
@@ -372,46 +325,45 @@ export default function OrderPage() {
           ))}
         </select>
 
-        {/* Selected-service detail panel: every supplier-provided
-            field, with honest "Not provided" fallbacks. */}
-        {svc && (
-          <div className="svc-detail">
-            <div className="svc-detail-head">
-              <div>
-                <div className="row-label mb">Selected service</div>
-                <b style={{ fontSize: '1.05rem' }}>{svc.name}</b>
-                <span className="svc-id-badge" style={{ marginLeft: 8 }}>ID {serviceIdLabel(svc)}</span>
+        {/* 5. Average time and quantity limits for the selected service. Only
+            values the provider actually supplied are shown. */}
+        {svc && (() => {
+          // Only facts the provider actually supplied are shown. Missing
+          // values are omitted, never displayed as blanks or guesses.
+          const stats = [
+            svc.speed_hint && { label: 'Average time', value: svc.speed_hint },
+            svc.quality && { label: 'Quality', value: svc.quality },
+            typeof svc.refill === 'boolean' && { label: 'Refill', value: svc.refill ? 'Available' : 'Not available' },
+            typeof svc.cancel === 'boolean' && { label: 'Cancel', value: svc.cancel ? 'Available' : 'Not available' },
+            svc.type && svc.type !== 'Default' && { label: 'Type', value: svc.type },
+            { label: 'Minimum', value: svc.min.toLocaleString() },
+            { label: 'Maximum', value: svc.max.toLocaleString() },
+            { label: 'Price / 1000', value: fmtRatePer1k(svc.price_per_1k), accent: true },
+          ].filter(Boolean);
+          return (
+            <div className="svc-detail">
+              <div className="svc-detail-head">
+                <span className="svc-id-badge">ID {serviceIdLabel(svc)}</span>
+                <span className="svc-detail-name">{svc.name}</span>
               </div>
-              <span className="badge badge-b">{svc.category_name || 'Uncategorized'}</span>
+              {svc.category_name && <div className="svc-detail-cat muted">{svc.category_name}</div>}
+              {svc.description && <p className="svc-detail-desc muted">{svc.description}</p>}
+              <div className="svc-detail-grid">
+                {stats.map((st) => (
+                  <div className="svc-detail-stat" key={st.label}>
+                    <span className="row-label">{st.label}</span>
+                    <b style={st.accent ? { color: 'var(--accent-2)' } : undefined}>{st.value}</b>
+                  </div>
+                ))}
+              </div>
             </div>
+          );
+        })()}
 
-            {svc.description && <p className="svc-detail-desc muted">{svc.description}</p>}
-
-            <div className="svc-detail-grid">
-              <div className="svc-detail-stat"><span className="row-label">Average time</span><b>{svc.speed_hint || 'Not provided'}</b></div>
-              <div className="svc-detail-stat"><span className="row-label">Quality</span><b>{svc.quality || 'Not provided'}</b></div>
-              <div className="svc-detail-stat"><span className="row-label">Minimum</span><b>{svc.min.toLocaleString()}</b></div>
-              <div className="svc-detail-stat"><span className="row-label">Maximum</span><b>{svc.max.toLocaleString()}</b></div>
-              <div className="svc-detail-stat"><span className="row-label">Price / 1000</span><b style={{ color: 'var(--accent-2)' }}>{fmtRatePer1k(svc.price_per_1k)}</b></div>
-              <div className="svc-detail-stat"><span className="row-label">Refill</span><b>{svc.refill ? 'Available' : '—'}</b></div>
-              <div className="svc-detail-stat"><span className="row-label">Cancel</span><b>{svc.cancel ? 'Available' : '—'}</b></div>
-              <div className="svc-detail-stat"><span className="row-label">Type</span><b style={{ fontSize: '0.82rem' }}>{svc.type || 'Default'}</b></div>
-            </div>
-          </div>
-        )}
-
-        <label className="label">Target link</label>
-        <input className="input" value={link} onChange={(e) => setLink(e.target.value)}
+        {/* 4. Link, plus the custom-comment input for services that need it. */}
+        <label className="label" htmlFor="order-link">Link</label>
+        <input id="order-link" className="input" value={link} onChange={(e) => setLink(e.target.value)}
           placeholder="https://instagram.com/yourpage — or any public profile/URL" />
-
-        <label className="label">Quantity</label>
-        <div className="flex">
-          <input className="input" type="number" min={svc?.min || 1} max={svc?.max}
-            value={qty} onChange={(e) => setQty(e.target.value)} placeholder={svc ? `Between ${svc.min.toLocaleString()} and ${svc.max.toLocaleString()}` : 'Quantity'} />
-        </div>
-        {svc && qty && (Number(qty) < svc.min || Number(qty) > svc.max) && (
-          <div className="field-error"><Icon name="alert" size={14} /> Quantity must be between {svc.min.toLocaleString()} and {svc.max.toLocaleString()}.</div>
-        )}
 
         {/* Type-specific extras — only shown for services whose provider type
             needs them. The values are passed straight to the upstream adapter. */}
@@ -432,30 +384,25 @@ export default function OrderPage() {
         )}
         {svc?.type === 'Paged' && (
           <div className="stack">
-            <label className="label">Runs</label>
-            <input className="input" type="number" min={1} value={extras.runs}
+            <label className="label" htmlFor="order-runs">Runs</label>
+            <input id="order-runs" className="input" type="number" min={1} value={extras.runs}
               onChange={(e) => setExtras((s) => ({ ...s, runs: e.target.value }))}
               placeholder="How many runs to deliver" />
-            <label className="label">Interval (minutes)</label>
-            <input className="input" type="number" min={1} value={extras.interval}
+            <label className="label" htmlFor="order-interval">Interval (minutes)</label>
+            <input id="order-interval" className="input" type="number" min={1} value={extras.interval}
               onChange={(e) => setExtras((s) => ({ ...s, interval: e.target.value }))}
               placeholder="Delay between runs, e.g. 30" />
           </div>
         )}
 
-        <label className="label">Coupon code <span className="faint">(optional)</span></label>
-        <div className="flex">
-          <input className="input" value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())}
-            placeholder="e.g. WELCOME10" style={{ textTransform: 'uppercase' }} />
-          <button type="button" className="btn btn-outline" onClick={requestQuote} disabled={quoteBusy}>
-            {quoteBusy ? 'Applying…' : 'Apply'}
-          </button>
-        </div>
+        <label className="label" htmlFor="order-qty">Quantity</label>
+        <input id="order-qty" className="input" type="number" min={svc?.min || 1} max={svc?.max}
+          value={qty} onChange={(e) => setQty(e.target.value)} placeholder={svc ? `Between ${svc.min.toLocaleString()} and ${svc.max.toLocaleString()}` : 'Quantity'} />
+        {svc && qty && (Number(qty) < svc.min || Number(qty) > svc.max) && (
+          <div className="field-error"><Icon name="alert" size={14} /> Quantity must be between {svc.min.toLocaleString()} and {svc.max.toLocaleString()}.</div>
+        )}
 
-        {err && <div className="field-error"><Icon name="alert" size={15} /> {err}</div>}
-        {q?.invalidCoupon && <div className="field-error"><Icon name="alert" size={15} /> Coupon not found or expired.</div>}
-        {q?.belowMin && <div className="field-error"><Icon name="alert" size={15} /> This coupon needs a minimum order value.</div>}
-
+        {/* 6. Charge. Figures come only from the server quote. */}
         <div className="divider" />
         <div className="stack" style={{ gap: 8 }}>
           <div className="flex between"><span className="muted">Price</span><span>{q ? fmtInr(preCoupon) : (svc && qty ? `≈ ${fmtInr(Math.round(Number(qty) * svc.price_per_1k * 100 / 1000))}` : '—')}</span></div>
@@ -469,7 +416,36 @@ export default function OrderPage() {
             </b></div>
         </div>
 
-        <div className="flex" style={{ marginTop: 20, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        {/* 7. Coupon — hidden until opened. Collapsing keeps the entered code. */}
+        <div className="coupon-box">
+          {!couponOpen ? (
+            <button type="button" className="coupon-toggle" aria-expanded="false" onClick={() => setCouponOpen(true)}>
+              Have a coupon?
+              {coupon.trim() && <span className="coupon-note"> · {coupon.trim()} entered</span>}
+            </button>
+          ) : (
+            <div className="coupon-open">
+              <label className="label" htmlFor="order-coupon">Coupon code</label>
+              <div className="flex">
+                <input id="order-coupon" className="input" value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+                  placeholder="e.g. WELCOME10" style={{ textTransform: 'uppercase' }} />
+                <button type="button" className="btn btn-outline" onClick={requestQuote} disabled={quoteBusy}>
+                  {quoteBusy ? 'Applying…' : 'Apply'}
+                </button>
+              </div>
+              <button type="button" className="coupon-toggle" aria-expanded="true" onClick={() => setCouponOpen(false)}>
+                Hide coupon
+              </button>
+            </div>
+          )}
+        </div>
+
+        {err && <div className="field-error"><Icon name="alert" size={15} /> {err}</div>}
+        {q?.invalidCoupon && <div className="field-error"><Icon name="alert" size={15} /> Coupon not found or expired.</div>}
+        {q?.belowMin && <div className="field-error"><Icon name="alert" size={15} /> This coupon needs a minimum order value.</div>}
+
+        {/* 8. Submit. */}
+        <div className="flex order-submit-row" style={{ marginTop: 20, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div className="muted" style={{ fontSize: '0.9rem' }}>
             Wallet balance: <b style={{ color: 'var(--text)' }}>{fmtInr(user.wallet_inr)}</b>
             {q && finalPrice > user.wallet_inr && (

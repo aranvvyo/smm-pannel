@@ -189,9 +189,15 @@ export function ToastProvider({ children }) {
 }
 
 export function Modal({ onClose, children, title }) {
+  useEffect(() => {
+    if (!onClose) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={title || 'Dialog'} onClick={(e) => e.stopPropagation()}>
         {title && <h3 style={{ marginBottom: 14 }}>{title}</h3>}
         {children}
       </div>
