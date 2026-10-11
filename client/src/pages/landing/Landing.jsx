@@ -12,7 +12,7 @@ const HeroScene = lazy(() => import('../../components/HeroScene.jsx'));
 
 const CAT_COLORS = {
   Instagram: '#e1306c', YouTube: '#ff0000', TikTok: '#25f4ee', Telegram: '#229ED9',
-  Twitter: '#1d9bf0', Facebook: '#1877f2', default: '#6366f1',
+  Twitter: '#1d9bf0', Facebook: '#1877f2', default: '#10b981',
 };
 
 const BENEFITS = [

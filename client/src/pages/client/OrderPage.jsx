@@ -4,6 +4,9 @@ import { get, post } from '../../api.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useToast, fmtInr, StatusBadge, Icon, Empty } from '../../ui.jsx';
 import { createQuoteFlow } from '../../lib/quoteFlow.js';
+import { fmtRatePer1k, platformOf, serviceIdLabel, serviceOptionLabel, groupCategoriesByPlatform } from '../../lib/serviceFormat.js';
+import { filterServices } from '../../lib/serviceSearch.js';
+import { commentLines, commentProblem } from '../../lib/commentLines.js';
 
 const VALID_ICONS = new Set(['camera', 'play', 'thumbsUp', 'birds', 'send', 'music', 'sparkles', 'zap', 'users', 'eye', 'heart', 'package']);
 
@@ -13,6 +16,7 @@ export default function OrderPage() {
   const toast = useToast();
 
   const [cats, setCats] = useState([]);
+  const [platformKey, setPlatformKey] = useState('');
   const [catId, setCatId] = useState('');
   const [serviceId, setServiceId] = useState('');
   const [svc, setSvc] = useState(null);
@@ -72,6 +76,10 @@ export default function OrderPage() {
     return [...seen.values()];
   }, [cats]);
 
+  // Platform groups (Instagram, YouTube, …) built from the deduplicated
+  // categories. Empty categories and empty platforms are never offered.
+  const platformGroups = useMemo(() => groupCategoriesByPlatform(catsDeduped), [catsDeduped]);
+
   const allServices = useMemo(
     () => catsDeduped.flatMap((c) => c.services.map((s) => ({
       ...s,
@@ -84,25 +92,57 @@ export default function OrderPage() {
     [catsDeduped]
   );
 
+  // Categories offered by the platform selector: only the chosen platform's
+  // categories, or every non-empty category when "All platforms" is selected.
+  const visibleCats = useMemo(() => {
+    if (!platformKey) return catsDeduped.filter((c) => c.services.length > 0);
+    return platformGroups.find((g) => g.key === platformKey)?.categories || [];
+  }, [platformKey, platformGroups, catsDeduped]);
+
   const services = useMemo(() => {
-    // Within the selected category only; "All categories" (catId '')
-    // searches across every eligible service.
-    const base = catId ? allServices.filter((s) => s.category_id === Number(catId)) : allServices;
-    const q = search.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter((s) => s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q));
-  }, [allServices, catId, search]);
+    // Narrowest scope wins: a category, else a platform, else everything.
+    // Search matches an exact service ID first, then keywords (see
+    // client/src/lib/serviceSearch.js).
+    let base = allServices;
+    if (catId) {
+      base = allServices.filter((s) => s.category_id === Number(catId));
+    } else if (platformKey) {
+      const ids = new Set(visibleCats.map((c) => c.id));
+      base = allServices.filter((s) => ids.has(s.category_id));
+    }
+    const matched = filterServices(base, search);
+    // Keep the selected service in the list, so the native select never
+    // shows a stale or blank choice after a search narrows the results.
+    if (svc && !matched.some((s) => s.id === svc.id)) return [svc, ...matched];
+    return matched;
+  }, [allServices, catId, platformKey, visibleCats, search, svc]);
 
   const selectService = (id) => {
     setServiceId(id);
     const found = allServices.find((s) => s.id === Number(id));
     setSvc(found || null);
     if (found && !catId) setCatId(found.category_id);
+    if (found && !platformKey) setPlatformKey(platformOf(found.category_name));
     quoteFlow.invalidate();
     // A quantity that is stale for the newly selected service
     // (outside its min/max bounds) is cleared, so validation
     // and the quote never reference an invalid value.
     if (found && qty !== '' && (Number(qty) < found.min || Number(qty) > found.max)) setQty('');
+  };
+
+  // Platform change: a selected category or service that belongs to another
+  // platform is cleared, so the form never shows a mismatched pair.
+  const changePlatform = (key) => {
+    setPlatformKey(key);
+    if (catId) {
+      const cat = catsDeduped.find((c) => c.id === Number(catId));
+      if (cat && key && platformOf(cat.name) !== key) setCatId('');
+    }
+    if (svc && key && platformOf(svc.category_name) !== key) {
+      setServiceId('');
+      setSvc(null);
+      quoteFlow.invalidate();
+    }
   };
 
   // Category change: keep the selected service only when it still
@@ -160,12 +200,16 @@ export default function OrderPage() {
       setErr('Get a fresh quote for the current service, quantity and coupon before placing the order.');
       return;
     }
+    if (svc?.type === 'Comments' && commentProblem(extras.comments, qty)) {
+      setErr(commentProblem(extras.comments, qty));
+      return;
+    }
     inFlight.current = true;
     setErr(''); setPlacing(true);
     // Type-specific extras travel with the order (e.g. Comments services take
     // a per-post URL + count; Paged/Runs services take runs + interval).
     const extrasPayload = {};
-    if (svc?.type === 'Comments') extrasPayload.comments = extras.comments.trim();
+    if (svc?.type === 'Comments') extrasPayload.comments = commentLines(extras.comments).join('\n');
     if (svc?.type === 'Mentions') extrasPayload.comments = extras.comments.trim();
     if (svc?.type === 'Paged' || /runs?/i.test(svc?.type || '')) {
       extrasPayload.runs = extras.runs;
@@ -270,6 +314,22 @@ export default function OrderPage() {
             reveals options only when opened, and scrolls natively when
             there are many categories — the page never grows with the
             catalog. */}
+        <label className="label" htmlFor="platform-select">Platform</label>
+        {providerConfigured === null ? (
+          <p className="faint" style={{ fontSize: '0.9rem' }}>Loading services…</p>
+        ) : platformGroups.length > 0 ? (
+          <div className="select-shell">
+            <span className="select-shell-icon" aria-hidden="true"><Icon name="layers" size={16} /></span>
+            <select id="platform-select" className="select-shell-input" value={platformKey} onChange={(e) => changePlatform(e.target.value)}>
+              <option value="">All platforms · {allServices.length.toLocaleString()} services</option>
+              {platformGroups.map((g) => (
+                <option key={g.key} value={g.key}>{g.emoji} {g.label} · {g.serviceCount.toLocaleString()} services</option>
+              ))}
+            </select>
+            <span className="select-shell-caret" aria-hidden="true"><Icon name="chevronDown" size={16} /></span>
+          </div>
+        ) : null}
+
         <label className="label" htmlFor="cat-select">Category</label>
         {providerConfigured === null ? (
           <p className="faint" style={{ fontSize: '0.9rem' }}>Loading services…</p>
@@ -279,8 +339,8 @@ export default function OrderPage() {
               <Icon name={showCategory && VALID_ICONS.has(showCategory.icon) ? showCategory.icon : 'layers'} size={16} />
             </span>
             <select id="cat-select" className="select-shell-input" value={catId} onChange={(e) => changeCategory(e.target.value)}>
-              <option value="">All categories · {allServices.length.toLocaleString()} services</option>
-              {catsDeduped.map((c) => (
+              <option value="">{platformKey ? 'All categories in this platform' : 'All categories'} · {(platformKey ? visibleCats.reduce((n, c) => n + c.services.length, 0) : allServices.length).toLocaleString()} services</option>
+              {visibleCats.map((c) => (
                 <option key={c.id} value={c.id}>{c.name} · {c.services.length.toLocaleString()} services</option>
               ))}
             </select>
@@ -299,7 +359,7 @@ export default function OrderPage() {
         <div className="input-shell">
           <Icon name="search" size={16} style={{ color: 'var(--faint)' }} />
           <input className="input-inner" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="e.g. Instagram followers" />
+            placeholder="Name, keyword or service ID (e.g. 1234)" />
         </div>
 
         <label className="label">Service</label>
@@ -307,7 +367,7 @@ export default function OrderPage() {
           <option value="">{serviceEmptyMessage}</option>
           {services.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.provider_service_id != null ? `#${s.provider_service_id} · ` : ''}{s.name} · {fmtInr(s.price_per_1k * 100)} / 1k · min {s.min.toLocaleString()}
+              {serviceOptionLabel(s)}
             </option>
           ))}
         </select>
@@ -320,9 +380,7 @@ export default function OrderPage() {
               <div>
                 <div className="row-label mb">Selected service</div>
                 <b style={{ fontSize: '1.05rem' }}>{svc.name}</b>
-                {svc.provider_service_id != null && (
-                  <span className="badge badge-muted" style={{ marginLeft: 8 }}>ID #{svc.provider_service_id}</span>
-                )}
+                <span className="svc-id-badge" style={{ marginLeft: 8 }}>ID {serviceIdLabel(svc)}</span>
               </div>
               <span className="badge badge-b">{svc.category_name || 'Uncategorized'}</span>
             </div>
@@ -334,7 +392,7 @@ export default function OrderPage() {
               <div className="svc-detail-stat"><span className="row-label">Quality</span><b>{svc.quality || 'Not provided'}</b></div>
               <div className="svc-detail-stat"><span className="row-label">Minimum</span><b>{svc.min.toLocaleString()}</b></div>
               <div className="svc-detail-stat"><span className="row-label">Maximum</span><b>{svc.max.toLocaleString()}</b></div>
-              <div className="svc-detail-stat"><span className="row-label">Price / 1000</span><b style={{ color: 'var(--accent-2)' }}>{fmtInr(svc.price_per_1k * 100)}</b></div>
+              <div className="svc-detail-stat"><span className="row-label">Price / 1000</span><b style={{ color: 'var(--accent-2)' }}>{fmtRatePer1k(svc.price_per_1k)}</b></div>
               <div className="svc-detail-stat"><span className="row-label">Refill</span><b>{svc.refill ? 'Available' : '—'}</b></div>
               <div className="svc-detail-stat"><span className="row-label">Cancel</span><b>{svc.cancel ? 'Available' : '—'}</b></div>
               <div className="svc-detail-stat"><span className="row-label">Type</span><b style={{ fontSize: '0.82rem' }}>{svc.type || 'Default'}</b></div>
@@ -358,12 +416,19 @@ export default function OrderPage() {
         {/* Type-specific extras — only shown for services whose provider type
             needs them. The values are passed straight to the upstream adapter. */}
         {svc?.type === 'Comments' && (
-          <label className="label">Comment (paste the text to drop)</label>
-        )}
-        {svc?.type === 'Comments' && (
-          <textarea className="input" rows={3} value={extras.comments}
-            onChange={(e) => setExtras((s) => ({ ...s, comments: e.target.value }))}
-            placeholder="The comment text is delivered with each view." />
+          <>
+            <label className="label" htmlFor="comment-lines">Comments — one per line</label>
+            <textarea id="comment-lines" className="input" rows={5} value={extras.comments}
+              onChange={(e) => setExtras((s) => ({ ...s, comments: e.target.value }))}
+              placeholder={'Great post!\nLove this 🔥'}
+              aria-describedby="comment-help" />
+            <p id="comment-help" className="faint" style={{ fontSize: '0.82rem', marginTop: 6 }}>
+              {commentLines(extras.comments).length.toLocaleString()} comment(s). The quantity must equal the number of comments.
+            </p>
+            {extras.comments.trim() && commentProblem(extras.comments, qty) && (
+              <div className="field-error"><Icon name="alert" size={14} /> {commentProblem(extras.comments, qty)}</div>
+            )}
+          </>
         )}
         {svc?.type === 'Paged' && (
           <div className="stack">
@@ -416,7 +481,7 @@ export default function OrderPage() {
               </div>
             )}
           </div>
-          <button className="btn btn-primary" disabled={placing || quoteBusy || !svc || !link.trim() || !qty || !qtyInRange || !quoteMatches}>
+          <button className="btn btn-primary" disabled={placing || quoteBusy || !svc || !link.trim() || !qty || !qtyInRange || !quoteMatches || (svc?.type === 'Comments' && !!commentProblem(extras.comments, qty))}>
             {placing ? 'Placing order…' : <><Icon name="zap" size={15} /> Pay & Place Order</>}
           </button>
         </div>

@@ -3,6 +3,7 @@ import { getDb } from '../db.js';
 import { requireAuth, currentUser } from '../middleware/auth.js';
 import { priceFor, displayRatePer1k } from '../lib/money.js';
 import { canonicalizeCategories } from '../lib/providerSync.js';
+import { isCustomerVisible } from '../lib/servicePrice.js';
 import { sendErr } from './_helpers.js';
 
 const r = Router();
@@ -69,6 +70,10 @@ r.get('/', requireAuth, (req, res) => {
   const servicesByCat = new Map(); // canonical id -> mapped services
   const orphanServices = [];
   for (const s of svcs) {
+    // Invalid (zero / missing / negative price) and unorderable (rounds to
+    // ₹0.00 at its minimum) services are never shown to customers. They stay
+    // in the database for admin review (see admin GET /api/admin/services).
+    if (!isCustomerVisible(s, noProfit)) continue;
     const canonicalCat = canonicalOf.get(s.category_id);
     if (canonicalCat) {
       // Present the service under its CANONICAL category id so the
@@ -122,6 +127,7 @@ r.get('/:id', requireAuth, (req, res) => {
   ).get(req.params.id);
   if (!s) return sendErr(res, 404, 'Service not found.');
   const noProfit = req.user.no_profit === 1;
+  if (!isCustomerVisible(s, noProfit)) return sendErr(res, 404, 'Service not found.');
   const rate = noProfit ? s.provider_rate : s.admin_rate;
   return res.json({
     id: s.id,

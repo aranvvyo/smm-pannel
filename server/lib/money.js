@@ -54,11 +54,13 @@ export function computePricing({ qty, adminRate, baseRate, noProfit = false, cou
 // Rates are RUPEES per 1000 units and are routinely fractional (₹0.45 per
 // 1000 is a normal SMM rate). They must never be rounded to whole rupees:
 // Math.round(0.45) === 0 turned valid cheap services into ₹0.00 prices.
-// Rates are kept to 4 decimal places (sub-paisa precision is retained in
-// storage; money amounts are rounded to paise only when an order total is
-// computed, in priceFor).
+// Rates are kept to 8 decimal places. That is enough to keep a genuinely
+// tiny positive rate (e.g. ₹0.00004 per 1000) positive in storage — a 4-place
+// round turned such a rate into 0 — while still removing float drift. Money
+// amounts are rounded to paise only when an order total is computed, in
+// priceFor.
 export function normalizeRate(rate) {
-  return Math.round(Number(rate) * 10000) / 10000;
+  return Math.round(Number(rate) * 1e8) / 1e8;
 }
 
 // Selling-rate derivation from provider base rate + markup config.

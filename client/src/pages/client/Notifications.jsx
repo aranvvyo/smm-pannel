@@ -55,7 +55,7 @@ export default function Notifications() {
             <div key={n.id} className="flex" style={{
               padding: '14px 18px',
               borderBottom: '1px solid var(--border-soft)',
-              background: n.read ? 'transparent' : 'rgba(99,102,241,0.06)',
+              background: n.read ? 'transparent' : 'rgba(16,185,129,0.06)',
               cursor: n.read ? 'default' : 'pointer',
             }} onClick={() => !n.read && markOne(n.id)}>
               <span className="notif-icon"><Icon name={ICON[n.type] || 'bell'} size={19} stroke={1.8} /></span>

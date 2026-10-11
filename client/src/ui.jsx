@@ -26,7 +26,7 @@ export const dateStr = (ms) => new Date(Number(ms)).toLocaleString('en-IN', { da
 
 export const ORDER_STATUSES = {
   PENDING: { label: 'Pending', cls: 'badge-warn', dot: '#fbbf24' },
-  IN_PROGRESS: { label: 'In Progress', cls: 'badge-b', dot: '#818cf8' },
+  IN_PROGRESS: { label: 'In Progress', cls: 'badge-b', dot: '#34d399' },
   COMPLETED: { label: 'Completed', cls: 'badge-success', dot: '#34d399' },
   PARTIAL: { label: 'Partial', cls: 'badge-info', dot: '#38bdf8' },
   CANCELED: { label: 'Canceled', cls: 'badge-danger', dot: '#f87171' },
@@ -228,7 +228,7 @@ export function useCountUp(target, duration = 900) {
 }
 
 /* ---- Tiny SVG line/bar charts ---- */
-export function LineChart({ data, labelKey = 'day', valueKey = 'profitInr', height = 180, color = '#818cf8' }) {
+export function LineChart({ data, labelKey = 'day', valueKey = 'profitInr', height = 180, color = '#10b981' }) {
   const W = 600, H = height, P = 28;
   const vals = data.map((d) => Number(d[valueKey]) || 0);
   const max = Math.max(...vals, 1);
@@ -259,7 +259,7 @@ export function LineChart({ data, labelKey = 'day', valueKey = 'profitInr', heig
   );
 }
 
-export function BarChart({ data, valueKey = 'depositsInr', height = 180, color = '#22d3ee' }) {
+export function BarChart({ data, valueKey = 'depositsInr', height = 180, color = '#34d399' }) {
   const W = 600, H = height, P = 28;
   const vals = data.map((d) => Number(d[valueKey]) || 0);
   const max = Math.max(...vals, 1);

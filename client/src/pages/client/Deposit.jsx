@@ -220,7 +220,7 @@ export default function Deposit() {
         <div className="card" style={{ display: 'flex', flexDirection: 'column', minHeight: 320 }}>
           {!invoice ? (
             <div className="empty" style={{ margin: 'auto', padding: 48 }}>
-              <div className="empty-icon" style={{ color: 'var(--accent-2)', background: 'rgba(34,211,238,0.08)', border: '1px solid rgba(34,211,238,0.25)' }}>
+              <div className="empty-icon" style={{ color: 'var(--accent-2)', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)' }}>
                 <Icon name="coins" size={26} stroke={1.5} />
               </div>
               <div className="empty-text">No active invoice</div>

@@ -1,4 +1,5 @@
 import { getDb, newId } from '../db.js';
+import { validateCommentOrder } from './commentOrder.js';
 import { computePricing } from './money.js';
 import { createAdapter } from './provider.js';
 import { notify } from './notifier.js';
@@ -38,6 +39,15 @@ export async function placeOrder({ user, serviceId, link, quantity, couponCode =
     const e = new Error(`Quantity must be between ${service.min} and ${service.max}.`); e.code = 'BAD_QTY'; throw e;
   }
   if (!link || !String(link).trim()) { const e = new Error('Target link is required.'); e.code = 'BAD_LINK'; throw e; }
+
+  // Custom comments: only 'Comments' services take them. Validated here, before
+  // any wallet or provider step, so a bad comment block never debits anything.
+  // Services of any other type never send a comments field.
+  const commentCheck = validateCommentOrder({ serviceType: service.type, quantity, comments: extras?.comments });
+  if (!commentCheck.ok) { const e = new Error(commentCheck.message); e.code = commentCheck.code; throw e; }
+  extras = { ...(extras || {}) };
+  if (commentCheck.text !== null) extras.comments = commentCheck.text;
+  else delete extras.comments;
 
   // Coupon resolution + no-loss pricing (all server-side).
   const noProfit = user.no_profit === 1;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { get, post, patch } from '../../api.js';
 import { useToast, fmtInr, Modal, Empty } from '../../ui.jsx';
+import { fmtRatePer1k } from '../../lib/serviceFormat.js';
 
 export default function AdminServices() {
   const toast = useToast();
@@ -95,8 +96,23 @@ export default function AdminServices() {
                       <td><b>{s.name}</b>{s.description && <div className="faint" style={{ fontSize: '0.78rem', maxWidth: 220 }}>{s.description}</div>}</td>
                       <td>{s.category_name}</td>
                       <td className="faint">{s.provider_name}</td>
-                      <td>{fmtInr(s.provider_rate)}</td>
-                      <td><b>{fmtInr(s.admin_rate)}</b> <span className="faint">(gain {fmtInr(gain)})</span></td>
+                      <td>{fmtRatePer1k(s.provider_rate)} <span className="faint">/ 1k</span></td>
+                      <td>
+                        <b>{fmtRatePer1k(s.admin_rate)}</b> <span className="faint">/ 1k</span>{' '}
+                        <span className="faint" style={{ fontSize: '0.78rem' }}>(gain {gain < 0 ? '−' : gain > 0 ? '+' : ''}{gain === 0 ? '₹0' : fmtRatePer1k(Math.abs(gain))})</span>
+                        {s.price_status && s.price_status !== 'ok' && (
+                          <div>
+                            <span
+                              className={`badge ${s.price_status === 'review' ? 'badge-warn' : 'badge-danger'}`}
+                              title={s.price_reason || ''}
+                              style={{ marginTop: 4 }}>
+                              {s.price_status === 'invalid' ? 'Invalid price'
+                                : s.price_status === 'unorderable' ? 'Rounds to ₹0'
+                                : 'Review price'}
+                            </span>
+                          </div>
+                        )}
+                      </td>
                       <td><span className="badge badge-b">{pct}%</span></td>
                       <td className="faint">{s.min.toLocaleString()}–{s.max > 999999 ? '∞' : s.max.toLocaleString()}</td>
                       <td>

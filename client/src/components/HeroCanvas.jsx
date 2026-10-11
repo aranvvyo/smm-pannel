@@ -56,7 +56,7 @@ function PlaceholderRig() {
     <group ref={ref}>
       <mesh>
         <torusGeometry args={[1.35, 0.02, 16, 128]} />
-        <meshStandardMaterial color="#6366f1" emissive="#6366f1" emissiveIntensity={0.35} metalness={0.6} roughness={0.3} />
+        <meshStandardMaterial color="#10b981" emissive="#10b981" emissiveIntensity={0.35} metalness={0.6} roughness={0.3} />
       </mesh>
       <mesh rotation={[Math.PI / 2.4, 0, 0]}>
         <torusGeometry args={[1.7, 0.012, 16, 128]} />
@@ -120,7 +120,7 @@ export default function HeroCanvas({ modelUrl, onError }) {
       <directionalLight position={[-6, 3, -6]} intensity={1.3} color="#a78bfa" />
       <directionalLight position={[0, -4, -3]} intensity={0.45} color="#e879f9" />
       <CameraRig />
-      {!still && <Sparkles count={42} scale={[9, 4.5, 3]} size={2.2} speed={0.22} color="#818cf8" opacity={0.55} />}
+      {!still && <Sparkles count={42} scale={[9, 4.5, 3]} size={2.2} speed={0.22} color="#34d399" opacity={0.55} />}
     </Canvas>
   );
 }

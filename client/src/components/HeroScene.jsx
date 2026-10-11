@@ -51,7 +51,7 @@ function PlaceholderArt() {
     <svg width="120" height="120" viewBox="0 0 120 120" fill="none" aria-hidden="true">
       <defs>
         <linearGradient id="pg1" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#6366f1" />
+          <stop offset="0%" stopColor="#10b981" />
           <stop offset="100%" stopColor="#22d3ee" />
         </linearGradient>
       </defs>

@@ -3,6 +3,7 @@ import { getDb } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { applyMarkup } from '../lib/money.js';
 import { canonicalizeCategories } from '../lib/providerSync.js';
+import { assessServicePrice } from '../lib/servicePrice.js';
 import { logSecurity } from '../middleware/auth.js';
 import { ah, sendErr } from './_helpers.js';
 
@@ -44,7 +45,14 @@ r.get('/', (req, res) => {
      ORDER BY c.sort`
   ).all();
   const cats = canonicalizeCategories(rawCats).canonical;
-  return res.json({ services: rows.map(svcCell), categories: cats });
+  // Price review flags for the admin panel only: a service whose selling price
+  // is zero/missing (invalid), rounds to ₹0.00 at its minimum (unorderable), or
+  // is unusually low (review) is labelled here. Nothing is changed or deleted.
+  const services = rows.map((row) => {
+    const flag = assessServicePrice(row, { noProfit: false });
+    return { ...svcCell(row), price_status: flag.status, price_reason: flag.reason };
+  });
+  return res.json({ services, categories: cats });
 });
 
 // POST /api/admin/services — create service and auto-computes admin_rate.
