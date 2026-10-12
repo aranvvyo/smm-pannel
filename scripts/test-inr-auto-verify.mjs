@@ -422,6 +422,85 @@ await t('positive control: a SUCCESS parsed by the trusted adapter credits exact
   assert.strictEqual(out.credited, true);
   assert.strictEqual(wallet(), before + 10000);
 });
+// The REAL documented protocol contract (status-only replies, no order or amount
+// fields) through the trusted verifier. This is what production would run, so a
+// bare SUCCESS must never credit, even with the switch on.
+{
+  const { VC_PROTOCOL_CONTRACT } = await import(path.join(ROOT, 'server', 'lib', 'vcGatewayProtocol.js'));
+  const sent = [];
+  let protoReply = null;
+  const protoTransport = async (req) => {
+    sent.push(req.url);
+    return protoReply;
+  };
+  const protoAdapter = ad.__createTestVerifier({
+    contract: { ...VC_PROTOCOL_CONTRACT, documented: true },
+    transport: protoTransport,
+  });
+
+  await t('documented protocol: a status-only SUCCESS is refused and credits nothing, even with the switch on', async () => {
+    const d = newDeposit(100);
+    protoReply = { status: 200, text: '{"status":"SUCCESS"}' };
+    const before = wallet();
+    const ledgerBefore = ledgerCount();
+    setAutoCredit(true);
+    const out = await ver.verifyDepositOnce({ depositId: d.id, adapter: protoAdapter });
+    setAutoCredit(false);
+    assert.strictEqual(out.credited, false);
+    assert.strictEqual(out.state, 'unverified');
+    assert.strictEqual(out.reason, 'order-mismatch', 'a bare status cannot bind to the order');
+    assert.strictEqual(row(d.id).status, 'pending');
+    assert.strictEqual(wallet(), before);
+    assert.strictEqual(ledgerCount(), ledgerBefore);
+  });
+
+  await t('documented protocol: PENDING, FAILED, INVALID and NOT_FOUND never credit, even with the switch on', async () => {
+    setAutoCredit(true);
+    try {
+      for (const status of ['PENDING', 'FAILED', 'INVALID', 'NOT_FOUND']) {
+        const d = newDeposit(100);
+        protoReply = { status: 200, text: JSON.stringify({ status }) };
+        const before = wallet();
+        const out = await ver.verifyDepositOnce({ depositId: d.id, adapter: protoAdapter });
+        assert.strictEqual(out.credited, false, status);
+        assert.strictEqual(row(d.id).status, 'pending', status);
+        assert.strictEqual(wallet(), before, status);
+      }
+    } finally {
+      setAutoCredit(false);
+    }
+  });
+
+  await t('documented protocol: the request goes only to the documented host, path and parameters', async () => {
+    const d = newDeposit(100);
+    protoReply = { status: 200, text: '{"status":"PENDING"}' };
+    sent.length = 0;
+    await ver.verifyDepositOnce({ depositId: d.id, adapter: protoAdapter });
+    assert.strictEqual(sent.length, 1, 'exactly one provider request');
+    const u = new URL(sent[0]);
+    assert.strictEqual(u.origin + u.pathname, 'https://vcgatewaypro.com/payment_api.php');
+    assert.strictEqual(u.searchParams.get('order_id'), d.order_id);
+    assert.strictEqual(u.searchParams.get('amount'), '110.00', 'total payable, not the ₹100 credit');
+  });
+
+  await t('documented protocol: a duplicate verification after a refused SUCCESS still never credits', async () => {
+    const d = newDeposit(100);
+    protoReply = { status: 200, text: '{"status":"SUCCESS"}' };
+    const before = wallet();
+    setAutoCredit(true);
+    try {
+      for (let i = 0; i < 3; i++) {
+        const out = await ver.verifyDepositOnce({ depositId: d.id, adapter: protoAdapter });
+        assert.strictEqual(out.credited, false);
+      }
+    } finally {
+      setAutoCredit(false);
+    }
+    assert.strictEqual(wallet(), before);
+    assert.strictEqual(row(d.id).status, 'pending');
+  });
+}
+
 await t('a SUCCESS with the wrong amount, parsed by the trusted adapter, is refused', async () => {
   for (const amountPaise of [10000, 11001, 0]) {
     const raw = await adapterReply(exp.orderId, 11000, 'SUCCESS', amountPaise);
