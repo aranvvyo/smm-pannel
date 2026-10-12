@@ -12,7 +12,7 @@ Set these on the server only. Never commit them, never paste the key into chat.
 |---|---|---|
 | `VCGETAWAY_API_KEY` | Provider dashboard | Secret. Server only. |
 | `VCGETAWAY_API_URL` | Provider documentation | Must be `https://vcgatewaypro.com/payment_api.php`. Any other host is refused. |
-| `VCGETAWAY_UPI_ID` | Provider dashboard | Receiving UPI ID. See the mismatch note below. |
+| `VCGETAWAY_UPI_ID` | Provider dashboard | Receiving UPI ID. Defaults to paytm.s1dw5n5@pty. |
 | `VCGETAWAY_WEBHOOK_SECRET` | Provider (only if a webhook exists) | Not used yet. Leave empty. |
 
 The code default for `VCGETAWAY_UPI_ID` is `paytm.s1dw5n5@pty`, the value confirmed for this provider. Setting the variable overrides it. Check the QR in step 2.
