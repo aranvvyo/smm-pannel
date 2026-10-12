@@ -114,8 +114,8 @@ export default function HeroScene() {
       </div>
       <p className="scene-caption">
         {failed
-          ? 'Character model failed to load. Supply a licensed model — see public/models/README.md.'
-          : 'Interactive 3D hero — character model pending license (public/models/README.md).'}
+          ? 'The 3D scene could not load. Everything on this page still works.'
+          : 'Interactive 3D scene. Use the toggle above to turn it on or off.'}
       </p>
     </div>
   );

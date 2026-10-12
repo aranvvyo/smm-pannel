@@ -54,7 +54,7 @@ const FAQS = [
 ];
 
 function Stat({ n, label }) {
-  return <div className="hero-stat"><div className="n">{useCountUp(n)}</div><div className="l">{label}</div></div>;
+  return <div className="hero-stat"><div className="n">{useCountUp(n).toLocaleString()}</div><div className="l">{label}</div></div>;
 }
 
 function Faq({ q, a }) {
@@ -98,7 +98,7 @@ export default function Landing() {
 
   return (
     <>
-      <nav className="nav">
+      <nav className="nav landing-nav">
         <div className="container">
           <div className="nav-inner">
             <span className="logo"><span className="logo-mark"><Icon name="logo" size={18} stroke={2} style={{ color: '#fff' }} /></span>InstaSMM</span>
@@ -139,7 +139,7 @@ export default function Landing() {
               InstaSMM is a fully automated SMM panel — order followers, likes and views
               in seconds, pay with Litecoin or USDT, and watch delivery happen in real time.
             </p>
-            <div className="flex" style={{ justifyContent: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+            <div className="hero-cta">
               <Link to={cta} className="btn btn-primary btn-lg">Start Boosting <Icon name="rocket" size={17} stroke={1.9} /></Link>
               <Link to="/signup" className="btn btn-outline btn-lg">Create Free Account</Link>
             </div>
@@ -171,7 +171,7 @@ export default function Landing() {
           <p className="section-sub" style={{ margin: '0 auto' }}>A sample of what is inside — full catalog after login.</p>
         </div>
         {preview.length > 0 ? (
-          <div className="grid grid-4" style={{ marginTop: 24 }}>
+          <div className="grid grid-4 home-grid" style={{ marginTop: 24 }}>
             {preview.map((s) => {
               const c = CAT_COLORS[s.category] || CAT_COLORS.default;
               return (
@@ -203,7 +203,7 @@ export default function Landing() {
           <h2 className="section-title">Why InstaSMM</h2>
           <p className="section-sub" style={{ margin: '0 auto' }}>Everything you need to run your growth on autopilot.</p>
         </div>
-        <div className="grid grid-3" style={{ marginTop: 24 }}>
+        <div className="grid grid-3 home-grid" style={{ marginTop: 24 }}>
           {BENEFITS.map(({ icon, title, body }) => (
             <div key={title} className="card">
               <div className="svc-icon" style={{ marginBottom: 10, color: 'var(--accent-2)', background: 'rgba(34,211,238,0.08)', border: '1px solid rgba(34,211,238,0.25)' }}>
@@ -222,7 +222,7 @@ export default function Landing() {
           <h2 className="section-title">How it works</h2>
           <p className="section-sub" style={{ margin: '0 auto' }}>From sign-up to delivery in four steps.</p>
         </div>
-        <div className="grid grid-4" style={{ marginTop: 24 }}>
+        <div className="grid grid-4 home-grid" style={{ marginTop: 24 }}>
           {STEPS.map(({ n, icon, title, body }) => (
             <div key={n} className="card">
               <div className="steps-n">{n}</div>
@@ -242,7 +242,7 @@ export default function Landing() {
           <h2 className="section-title">Payments</h2>
           <p className="section-sub" style={{ margin: '0 auto' }}>Fast crypto deposits, credited to your INR wallet.</p>
         </div>
-        <div className="grid grid-3" style={{ marginTop: 24, maxWidth: 880, marginLeft: 'auto', marginRight: 'auto' }}>
+        <div className="grid grid-3 home-grid" style={{ marginTop: 24, maxWidth: 880, marginLeft: 'auto', marginRight: 'auto' }}>
           {PAYMENT_METHODS.map(({ icon, name, sub, tag }) => (
             <div key={name} className="card">
               <div className="flex between">
@@ -262,7 +262,7 @@ export default function Landing() {
           <h2 className="section-title">Built secure</h2>
           <p className="section-sub" style={{ margin: '0 auto' }}>Serious engineering behind a simple interface.</p>
         </div>
-        <div className="grid grid-4" style={{ marginTop: 24 }}>
+        <div className="grid grid-4 home-grid" style={{ marginTop: 24 }}>
           {SECURITY.map(({ icon, title, body }) => (
             <div key={title} className="card">
               <div className="svc-icon" style={{ marginBottom: 10, color: 'var(--success)' }}><Icon name={icon} size={19} stroke={1.7} /></div>
