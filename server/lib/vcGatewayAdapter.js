@@ -64,7 +64,12 @@ export function createVcGatewayAdapter({ contract = DOCUMENTED_VERIFICATION_CONT
       }
       let res;
       try {
-        const req = contract.buildRequest({ orderId, totalPaise, apiKey: config.vcGetaway.apiKey });
+        const req = contract.buildRequest({
+          orderId,
+          totalPaise,
+          apiKey: config.vcGetaway.apiKey,
+          apiUrl: config.vcGetaway.apiUrl,
+        });
         res = await transport(req, { timeoutMs: VC_TIMEOUT_MS });
       } catch (e) {
         // Timeouts and network errors. The message may contain the URL, so it

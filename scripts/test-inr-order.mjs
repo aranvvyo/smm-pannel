@@ -76,7 +76,7 @@ t('UPI URI for ₹100 credit: amount is the ₹110 total, not the ₹100 credit'
   const credit = inrCreditPaise(100);
   const total = inrTotalPaise(credit);
   const uri = buildUpiUri({ upiId: UPI, orderId: 'ORD261008LSWA4K', totalPaise: total });
-  assert.strictEqual(uri, `upi://pay?pa=${UPI}&am=110.00&cu=INR&tn=ORD261008LSWA4K`);
+  assert.strictEqual(uri, `upi://pay?pa=${UPI}&pn=InstaSMM&am=110.00&cu=INR&tn=ORD261008LSWA4K`);
 });
 
 t('UPI URI for ₹500 credit: amount is the ₹550 total', () => {

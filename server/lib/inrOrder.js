@@ -43,13 +43,19 @@ export function paiseToRupeeString(paise) {
   return `${Math.floor(p / 100)}.${String(p % 100).padStart(2, '0')}`;
 }
 
+// Payee name shown in the customer's UPI app.
+export const UPI_PAYEE_NAME = 'InstaSMM';
+
 // The documented UPI payment URI:
-//   upi://pay?pa=<UPI ID>&am=<amount>&cu=INR&tn=<ORDER_ID>
+//   upi://pay?pa=<UPI ID>&pn=<Payee>&am=<amount>&cu=INR&tn=<ORDER_ID>
 // The amount is the customer's TOTAL payable (credit + 10% fee), never the
 // wallet credit. The order ID in `tn` lets the provider match the payment.
-export function buildUpiUri({ upiId, orderId, totalPaise }) {
+export function buildUpiUri({ upiId, orderId, totalPaise, payeeName = UPI_PAYEE_NAME }) {
   if (!isValidUpiId(upiId)) throw new Error('invalid UPI id');
   if (!isValidOrderId(orderId)) throw new Error('invalid order id');
+  if (typeof payeeName !== 'string' || !/^[A-Za-z0-9 ._-]{1,50}$/.test(payeeName)) {
+    throw new Error('invalid payee name');
+  }
   const am = paiseToRupeeString(totalPaise);
-  return `upi://pay?pa=${upiId}&am=${am}&cu=INR&tn=${orderId}`;
+  return `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&am=${am}&cu=INR&tn=${orderId}`;
 }
