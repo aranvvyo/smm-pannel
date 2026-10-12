@@ -1,33 +1,35 @@
-# 3D character models (InstaSMM hero)
+# Homepage 3D model — InstaSMM "Digital Growth Core"
 
-The homepage hero is built for an interactive 3D character, but **no model is
-bundled with this repository**. Jujutsu Kaisen characters (Satoru Gojo, Yuji
-Itadori, Ryomen Sukuna, Megumi Fushiguro) are copyrighted by Shueisha / MAPPA /
-Gege Akutami. A downloadable fan model is NOT authorization for commercial use —
-using one on this commercial SMM site would be copyright infringement.
+The homepage hero shows `instasmm-growth-core.glb`, an original product model for
+InstaSMM. It is not a character and it is not a third-party asset. It contains:
 
-## What to supply
+- an emerald growth core with a transparent glass shell,
+- three tilted orbit rings in brushed steel (social platforms and automated delivery),
+- eight turquoise nodes on steel struts linking the rings to the core,
+- a graphite plinth.
 
-1. Obtain a **written, commercial web-use license** for the character model from
-   the rights holder or an authorized licensor (or use a model whose license
-   explicitly permits commercial websites).
-2. Place the file at `client/public/models/gojo.glb` (glTF 2.0 binary, `.glb`
-   preferred), or set `VITE_HERO_MODEL_URL` at build time to any reachable URL.
-3. Keep the license text in this folder (e.g. `LICENSE-gojo.txt`).
+## Provenance
 
-## Model requirements
+- Modelled in SketchUp through the Trimble SketchUp connector (Python `build_model`
+  script, inches, Z-up).
+- The connector has no glTF export, and its saved `.skp` file could not be fetched
+  from the build sandbox. So the GLB was produced from the live SketchUp session:
+  the script read each group's and instance's world transform and deduplicated
+  triangle mesh, and a small converter wrote the binary glTF 2.0 file.
+  - Converter: Z-up inches → Y-up metres, smooth normals from area-weighted face
+    normals, one mesh per object, one PBR material per SketchUp colour.
+- Stats: 22 meshes, 6 materials, about 9.4k triangles, about 243 KB.
 
-- Format: `.glb` / `.gltf` (binary glTF 2.0), rigged, textures embedded.
-- Size guidance: < 8 MB, < ~150k triangles, textures 1024–2048 px.
-- Do NOT modify, repaint, restyle or face-swap the model — the scene renders
-  the original appearance untouched.
-- If the model carries its own idle animation it is played automatically;
-  otherwise only camera/lighting motion is used.
+## Using a different model
 
-## Current behavior (until a licensed model is supplied)
+- Set `VITE_HERO_MODEL_URL` at build time to any reachable glTF/GLB URL, or replace
+  this file keeping the same name. The scene centres whatever it loads.
+- Keep models under about 8 MB and about 150k triangles for mid-range Android phones.
 
-- The scene renders an abstract placeholder ring (not a character).
-- If the model file is missing or fails to load, the placeholder stays and a
-  caption explains it — the rest of the site is unaffected.
-- WebGL-unavailable browsers and `prefers-reduced-motion` users get a static,
-  fully functional page, plus a "Disable 3D" toggle on the hero.
+## Fallbacks (visitors never see developer notes)
+
+- WebGL unavailable, `prefers-reduced-motion`, or the "Disable 3D" toggle: a static
+  emblem, with the rest of the page unchanged.
+- Model fails to load: the static emblem plus a short visitor-facing line.
+- The 3D view starts with the toggle state; dragging horizontally turns the model,
+  and vertical swipes still scroll the page.

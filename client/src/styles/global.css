@@ -697,7 +697,10 @@ input, select, textarea, button { max-width: 100%; }
   overflow: hidden;
   box-shadow: var(--shadow);
 }
-.hero3d-frame canvas { display: block; width: 100% !important; height: 100% !important; pointer-events: none; }
+/* Drag-to-turn stage. touch-action: pan-y keeps vertical swipes scrolling the page on phones. */
+.hero3d-stage { position: absolute; inset: 0; z-index: 0; touch-action: pan-y; cursor: grab; }
+.hero3d-stage:active { cursor: grabbing; }
+.hero3d-frame canvas { display: block; width: 100% !important; height: 100% !important; touch-action: pan-y; }
 @media (max-width: 640px) { .hero3d-frame { height: 300px; } }
 
 /* Lazy-load skeleton for the 3D hero chunk. */

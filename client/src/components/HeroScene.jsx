@@ -3,21 +3,20 @@
 // Rules this component enforces:
 //  - three.js / React Three Fiber / drei are code-split (React.lazy) so the
 //    public homepage renders its content BEFORE any 3D code loads.
-//  - No character model is bundled. A licensed .glb is supplied at
-//    client/public/models/gojo.glb or via VITE_HERO_MODEL_URL — see
-//    client/public/models/README.md. Until then the scene shows an abstract
-//    placeholder ring, never an AI-generated character.
+//  - The hero shows the original InstaSMM "Digital Growth Core" product model
+//    (client/public/models/instasmm-growth-core.glb, see
+//    client/public/models/README.md). VITE_HERO_MODEL_URL can point elsewhere.
 //  - WebGL-unavailable browsers, model-load failures and
 //    prefers-reduced-motion all degrade to a static, fully usable page.
-//  - The canvas never intercepts pointer events, so it can never block
-//    page interaction.
+//  - The canvas takes horizontal drags only (touch-action: pan-y), so vertical
+//    scrolling and every other page interaction is never blocked.
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Icon } from '../ui.jsx';
 
 const HeroCanvas = lazy(() => import('./HeroCanvas.jsx'));
 
-// Configurable model path — no model ships with this repository.
-const MODEL_URL = import.meta.env.VITE_HERO_MODEL_URL || '/models/gojo.glb';
+// Model path (override with VITE_HERO_MODEL_URL at build time).
+const MODEL_URL = import.meta.env.VITE_HERO_MODEL_URL || '/models/instasmm-growth-core.glb';
 
 function webglAvailable() {
   try {
@@ -93,14 +92,14 @@ export default function HeroScene() {
   return (
     <div className="hero3d">
       <div className="hero3d-frame">
-        {enabled && canGL ? (
+        {enabled && canGL && !failed ? (
           <Suspense fallback={<SceneLoading />}>
             <HeroCanvas modelUrl={MODEL_URL} onError={() => setFailed(true)} />
           </Suspense>
         ) : (
           <ScenePlaceholder label={
             failed
-              ? '3D character unavailable — everything on this page works without it.'
+              ? 'The 3D view is unavailable on this device.'
               : canGL
                 ? '3D effects are off — enable them any time with the toggle.'
                 : 'This browser does not support WebGL — the site works fully without the 3D scene.'
@@ -120,8 +119,10 @@ export default function HeroScene() {
       </div>
       <p className="scene-caption">
         {failed
-          ? 'The 3D scene could not load. Everything on this page still works.'
-          : 'Interactive 3D scene. Use the toggle above to turn it on or off.'}
+          ? 'Everything on this page still works without the 3D view.'
+          : enabled && canGL
+            ? 'Drag to turn the model. Use the toggle above to switch 3D off.'
+            : 'Use the toggle above to switch the 3D model on.'}
       </p>
     </div>
   );
