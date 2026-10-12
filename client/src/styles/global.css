@@ -486,6 +486,8 @@ tbody tr:hover { background: rgba(16,185,129,0.06); }
 .filter-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .chip { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: background 0.12s, color 0.12s; }
 .chip.active { background: var(--grad); color: #fff; border-color: transparent; }
+/* Touch screens: filter chips get a comfortable tap height. */
+@media (pointer: coarse) { .chip { min-height: 40px; } }
 .chip.badge-danger { background: rgba(248,113,113,0.14); color: var(--danger); }
 
 /* Scrollbar */
@@ -943,6 +945,7 @@ input, select, textarea, button { max-width: 100%; }
   min-height: 36px;
 }
 .coupon-toggle:hover { color: var(--accent); }
+@media (pointer: coarse) { .coupon-toggle { min-height: 44px; } }
 .coupon-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 .coupon-note { color: var(--muted); font-weight: 500; }
 .coupon-open { min-width: 0; }

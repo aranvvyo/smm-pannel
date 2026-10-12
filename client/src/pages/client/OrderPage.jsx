@@ -4,7 +4,7 @@ import { get, post } from '../../api.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useToast, fmtInr, StatusBadge, Icon, Empty } from '../../ui.jsx';
 import { createQuoteFlow } from '../../lib/quoteFlow.js';
-import { fmtRatePer1k, platformIcon, serviceIdLabel, serviceOptionLabel, usableCategories } from '../../lib/serviceFormat.js';
+import { fmtRatePer1k, flagLabel, platformIcon, serviceIdLabel, serviceOptionLabel, usableCategories } from '../../lib/serviceFormat.js';
 import { filterServices } from '../../lib/serviceSearch.js';
 import { commentLines, commentProblem } from '../../lib/commentLines.js';
 
@@ -333,8 +333,8 @@ export default function OrderPage() {
           const stats = [
             svc.speed_hint && { label: 'Average time', value: svc.speed_hint },
             svc.quality && { label: 'Quality', value: svc.quality },
-            typeof svc.refill === 'boolean' && { label: 'Refill', value: svc.refill ? 'Available' : 'Not available' },
-            typeof svc.cancel === 'boolean' && { label: 'Cancel', value: svc.cancel ? 'Available' : 'Not available' },
+            flagLabel(svc.refill) && { label: 'Refill', value: flagLabel(svc.refill) },
+            flagLabel(svc.cancel) && { label: 'Cancel', value: flagLabel(svc.cancel) },
             svc.type && svc.type !== 'Default' && { label: 'Type', value: svc.type },
             { label: 'Minimum', value: svc.min.toLocaleString() },
             { label: 'Maximum', value: svc.max.toLocaleString() },

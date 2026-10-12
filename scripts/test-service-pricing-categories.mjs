@@ -6,7 +6,7 @@ import { normalizeRate, applyMarkup, priceFor } from '../server/lib/money.js';
 import { assessServicePrice, isCustomerVisible, REVIEW_RATE_RUPEES } from '../server/lib/servicePrice.js';
 import { validateCommentOrder, normalizeCommentLines } from '../server/lib/commentOrder.js';
 import { canonicalizeCategories, categoryKey } from '../server/lib/providerSync.js';
-import { fmtRatePer1k, platformIcon, platformOf, serviceIdLabel, serviceOptionLabel, usableCategories } from '../client/src/lib/serviceFormat.js';
+import { fmtRatePer1k, flagLabel, platformIcon, platformOf, serviceIdLabel, serviceOptionLabel, usableCategories } from '../client/src/lib/serviceFormat.js';
 import { filterServices } from '../client/src/lib/serviceSearch.js';
 import { commentLines, commentProblem } from '../client/src/lib/commentLines.js';
 
@@ -187,6 +187,15 @@ t('usable categories drop empty and malformed entries, keeping order', () => {
     { id: 4, name: 'YouTube Views', services: [{ id: 10 }] },
   ]);
   assert.deepStrictEqual(kept.map((c) => c.id), [2, 4]);
+});
+t('refill and cancel flags: server 0/1 and booleans map to labels; missing values are omitted', () => {
+  assert.strictEqual(flagLabel(1), 'Available');
+  assert.strictEqual(flagLabel(0), 'Not available');
+  assert.strictEqual(flagLabel(true), 'Available');
+  assert.strictEqual(flagLabel(false), 'Not available');
+  assert.strictEqual(flagLabel(null), null);
+  assert.strictEqual(flagLabel(undefined), null);
+  assert.strictEqual(flagLabel(''), null);
 });
 t('option label shows the provider ID and a short one-line name', () => {
   const label = serviceOptionLabel({ id: 7, provider_service_id: 6197, name: 'Facebook Post Likes 👍 Hidden Data [ Max 10K ] 10k/day | No Refill ⚠️ | Instant Start' });

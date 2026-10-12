@@ -56,6 +56,14 @@ export function usableCategories(categories) {
   return (categories || []).filter((c) => c && Array.isArray(c.services) && c.services.length > 0);
 }
 
+// Refill/Cancel flags. The server sends 0 or 1 (booleans are accepted too).
+// Returns null when the provider gave no value, so the row is omitted rather
+// than shown as a guess.
+export function flagLabel(v) {
+  if (v === null || v === undefined || v === '') return null;
+  return Number(v) ? 'Available' : 'Not available';
+}
+
 // "#1234" label used for the dropdown and the detail panel. The provider
 // service ID is preferred; the internal database id is only a fallback.
 export function serviceIdLabel(service) {
