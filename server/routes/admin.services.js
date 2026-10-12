@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { applyMarkup } from '../lib/money.js';
+import { validateGlobalMarkup, applyGlobalMarkup } from '../lib/globalMarkup.js';
 import { canonicalizeCategories } from '../lib/providerSync.js';
 import { assessServicePrice } from '../lib/servicePrice.js';
 import { logSecurity } from '../middleware/auth.js';
@@ -161,21 +162,15 @@ r.patch('/:id', (req, res) => {
 
 // POST /api/admin/markup/global — set global markup across ALL services
 // { markup_type, markup_value }
-r.post('/markup/global', (req, res) => {
-  const body = req.body || {};
-  const markupType = body.markup_type === 'fixed' ? 'fixed' : 'percent';
-  const markupValue = Number(body.markup_value ?? 25);
-  const db = getDb();
-  const all = db.prepare('SELECT * FROM services').all();
-  const upd = db.prepare('UPDATE services SET markup_type=?, markup_value=?, admin_rate=? WHERE id=?');
-  let n = 0;
-  for (const s of all) {
-    upd.run(markupType, markupValue, applyMarkup(s.provider_rate, markupType, markupValue), s.id);
-    n++;
-  }
+// The setting and every service row change in one transaction (see
+// server/lib/globalMarkup.js). Invalid input is refused before any write.
+r.post('/markup/global', ah(async (req, res) => {
+  const check = validateGlobalMarkup(req.body || {});
+  if (!check.ok) return sendErr(res, 400, check.message);
+  const out = applyGlobalMarkup(getDb(), check);
   logSecurity(req.user.id, req.user.email, 'global_markup', 'admin');
-  return res.json({ updated: n });
-});
+  return res.json({ updated: out.updated, markup_type: out.markup_type, markup_value: out.markup_value });
+}));
 
 // POST /api/admin/services/:id/sync — re-pull from provider (replaces catalog).
 r.post('/:id/sync', ah(async (req, res) => {
