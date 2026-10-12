@@ -774,6 +774,186 @@ input, select, textarea, button { max-width: 100%; }
   color: var(--muted);
 }
 
+/* ── Premium homepage layer ─────────────────────────────────────────
+   Everything below is scoped to .landing-page so no other screen changes.
+   Layout rules from the responsive pass above are not overridden here. */
+.landing-page { position: relative; overflow-x: clip; isolation: isolate; }
+.landing-page::before {
+  content: '';
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(640px 460px at 8% -6%, rgba(16, 185, 129, 0.20), transparent 70%),
+    radial-gradient(560px 420px at 96% 4%, rgba(34, 211, 238, 0.12), transparent 70%),
+    radial-gradient(760px 520px at 50% 48%, rgba(16, 185, 129, 0.05), transparent 70%);
+}
+.landing-page .anime-page { background: transparent; }
+.landing-page .hero { position: relative; }
+.landing-page .hero::before {
+  content: '';
+  position: absolute; inset: 0 -40vw -40px; z-index: -1; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 52px 52px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 25% 25%, #000 0%, transparent 75%);
+          mask-image: radial-gradient(ellipse 70% 60% at 25% 25%, #000 0%, transparent 75%);
+}
+
+/* Glass navigation */
+.landing-page .landing-nav {
+  background: rgba(10, 10, 10, 0.72);
+  border-bottom-color: rgba(16, 185, 129, 0.12);
+}
+
+/* Eyebrow + live pill above the headline */
+.hero-eyebrow {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 6px 13px 6px 10px; margin-bottom: 18px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.32);
+  color: var(--accent-2); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.02em;
+}
+.live-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2);
+  animation: live-pulse 2.2s ease-out infinite;
+}
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+
+/* Headline: layered emerald → cyan gradient with a soft glow. */
+.landing-page .hero h1 { text-wrap: balance; }
+.landing-page .hero .grad-text {
+  background-image: linear-gradient(115deg, #6ee7b7 0%, #10b981 42%, #22d3ee 100%);
+  filter: drop-shadow(0 0 28px rgba(16, 185, 129, 0.28));
+}
+.landing-page .hero-copy > p { max-width: 580px; }
+
+/* Primary CTA gets a glow. */
+.landing-page .btn-primary { box-shadow: 0 12px 32px -12px rgba(16, 185, 129, 0.7); }
+.landing-page .btn-primary:hover { box-shadow: 0 16px 40px -10px rgba(16, 185, 129, 0.85); }
+
+/* Platform chips with brand-tinted icons and dots */
+.hero-badges { gap: 8px; }
+.hero-copy .hero-badges { margin-top: 22px; margin-bottom: 0; }
+.brand-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 11px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+  color: var(--muted); font-size: 0.8rem; font-weight: 600; white-space: nowrap;
+}
+.brand-chip svg { color: var(--c); }
+.feature-pill { background: rgba(255, 255, 255, 0.03); }
+
+/* Stats: one glass panel instead of loose numbers */
+.landing-page .hero-stats {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0; margin-top: 30px; padding: 16px 12px;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.01));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 20px 50px -30px rgba(16, 185, 129, 0.45);
+}
+@media (min-width: 640px) { .landing-page .hero-stats { gap: 0; padding: 18px 8px; } }
+.landing-page .hero-stat { padding: 2px 8px; }
+.landing-page .hero-stat + .hero-stat { border-left: 1px solid rgba(255, 255, 255, 0.07); }
+.landing-page .hero-stat .n { white-space: nowrap; font-size: clamp(1.45rem, 2.4vw, 2rem); }
+.landing-page .hero-stat .l { margin-top: 4px; }
+@media (max-width: 480px) {
+  .landing-page .hero-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
+  .landing-page .hero-stat:nth-child(odd) { border-left: none; }
+  .landing-page .hero-stat:nth-child(n + 3) { border-top: 1px solid rgba(255, 255, 255, 0.07); padding-top: 14px; margin-top: 12px; }
+  .landing-page .hero-stat .l { white-space: normal; }
+}
+
+/* Section headers: small eyebrow above the title */
+.eyebrow {
+  display: inline-block; margin-bottom: 10px;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--accent-2);
+}
+.section-head { text-align: center; margin-bottom: 8px; }
+.section-head .section-sub { margin-left: auto; margin-right: auto; }
+.landing-page .section-title { background: linear-gradient(180deg, #ffffff 30%, #a7f3d0 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* Cards: subtle top sheen and hover lift on the homepage only. */
+.landing-page .card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 55%), var(--surface);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.landing-page .home-grid > .card:hover,
+.landing-page .faq-item:hover {
+  border-color: rgba(16, 185, 129, 0.38);
+  box-shadow: 0 18px 40px -22px rgba(16, 185, 129, 0.45);
+  transform: translateY(-2px);
+}
+.landing-page .svc-icon { box-shadow: 0 0 22px -8px currentColor; }
+
+/* Service previews: brand-coloured accent line and icon glow. */
+.service-tile { overflow: hidden; }
+.service-tile::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, var(--c, var(--accent)), transparent 80%);
+}
+.service-tile:hover { border-color: color-mix(in srgb, var(--c, var(--accent)) 45%, transparent); }
+.service-tile .svc-icon { box-shadow: 0 0 24px -8px var(--c, var(--accent)); }
+
+/* 3D frame: glowing backdrop and a gradient rim. */
+.landing-page .hero3d-frame {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(16, 185, 129, 0.18), transparent 60%),
+    radial-gradient(circle at 85% 92%, rgba(34, 211, 238, 0.10), transparent 55%),
+    var(--bg-elev);
+  border-color: rgba(52, 211, 153, 0.28);
+  box-shadow: 0 30px 80px -34px rgba(16, 185, 129, 0.55), var(--shadow);
+}
+.landing-page .hero3d-frame::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 20%, transparent 75%);
+          mask-image: radial-gradient(ellipse at center, #000 20%, transparent 75%);
+}
+.landing-page .scene-placeholder { z-index: 1; }
+.landing-page .scene-caption { color: var(--faint); }
+
+/* Placeholder orb (replaces the static ring when 3D is off). */
+.orb-art { width: 150px; height: 150px; overflow: visible; filter: drop-shadow(0 0 18px rgba(16, 185, 129, 0.35)); }
+.orb-ring { transform-box: fill-box; transform-origin: center; animation: orb-spin 24s linear infinite; }
+.orb-ring.reverse { animation-direction: reverse; animation-duration: 36s; }
+@keyframes orb-spin { to { transform: rotate(360deg); } }
+
+/* Footer: gradient rule */
+.landing-page .site-footer { position: relative; border-top-color: transparent; }
+.landing-page .site-footer::before {
+  content: ''; position: absolute; top: 0; left: 12%; right: 12%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.55), transparent);
+}
+
+/* Closing CTA card: radial glow */
+.landing-page .card-gradient.cta-card {
+  padding: 44px 20px;
+  text-align: center;
+  background:
+    radial-gradient(420px 220px at 50% 0%, rgba(16, 185, 129, 0.22), transparent 70%),
+    var(--surface);
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 70px -28px rgba(16, 185, 129, 0.55);
+}
+.cta-card .eyebrow { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot, .orb-ring { animation: none !important; }
+  .landing-page .home-grid > .card:hover,
+  .landing-page .faq-item:hover { transform: none; }
+}
+
 /* Footer safe-area for iPhone home indicator. */
 .site-footer { padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
 

@@ -48,16 +48,22 @@ function SceneLoading() {
 // Neutral abstract placeholder art — deliberately NOT a character.
 function PlaceholderArt() {
   return (
-    <svg width="120" height="120" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+    <svg className="orb-art" viewBox="0 0 150 150" fill="none" aria-hidden="true">
       <defs>
         <linearGradient id="pg1" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#10b981" />
+          <stop offset="0%" stopColor="#34d399" />
           <stop offset="100%" stopColor="#22d3ee" />
         </linearGradient>
+        <radialGradient id="pg2" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#34d399" stopOpacity="0.55" />
+          <stop offset="100%" stopColor="#34d399" stopOpacity="0" />
+        </radialGradient>
       </defs>
-      <circle cx="60" cy="60" r="44" stroke="url(#pg1)" strokeWidth="1.5" opacity="0.8" />
-      <circle cx="60" cy="60" r="30" stroke="#8b5cf6" strokeWidth="1" opacity="0.6" strokeDasharray="4 6" />
-      <circle cx="60" cy="60" r="5" fill="#22d3ee" />
+      <circle cx="75" cy="75" r="62" fill="url(#pg2)" opacity="0.5" />
+      <circle className="orb-ring" cx="75" cy="75" r="56" stroke="url(#pg1)" strokeWidth="1.5" strokeDasharray="2 7" strokeLinecap="round" />
+      <circle className="orb-ring reverse" cx="75" cy="75" r="42" stroke="#22d3ee" strokeWidth="1" opacity="0.55" strokeDasharray="36 10" />
+      <circle cx="75" cy="75" r="26" stroke="url(#pg1)" strokeWidth="1" opacity="0.7" />
+      <circle cx="75" cy="75" r="8" fill="url(#pg1)" />
     </svg>
   );
 }

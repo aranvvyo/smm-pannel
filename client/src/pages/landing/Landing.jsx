@@ -15,6 +15,16 @@ const CAT_COLORS = {
   Twitter: '#1d9bf0', Facebook: '#1877f2', default: '#10b981',
 };
 
+// Platform chips shown in the hero. Each carries its brand tint via --c.
+const PLATFORMS = [
+  { name: 'Instagram', icon: 'camera', c: '#e1306c' },
+  { name: 'YouTube', icon: 'play', c: '#ff4d4d' },
+  { name: 'TikTok', icon: 'music', c: '#25f4ee' },
+  { name: 'Telegram', icon: 'send', c: '#229ED9' },
+  { name: 'Twitter', icon: 'birds', c: '#1d9bf0' },
+  { name: 'Facebook', icon: 'thumbsUp', c: '#1877f2' },
+];
+
 const BENEFITS = [
   { icon: 'zap', title: 'Instant Delivery', body: 'Automated orders run 24/7 through multiple provider APIs with zero manual work.' },
   { icon: 'wallet', title: 'Secure Wallet', body: 'Pay with Litecoin or USDT (BEP20 / ERC20). Deposits are credited safely and tracked in a transparent ledger.' },
@@ -97,7 +107,7 @@ export default function Landing() {
   };
 
   return (
-    <>
+    <div className="landing-page">
       <nav className="nav landing-nav">
         <div className="container">
           <div className="nav-inner">
@@ -126,11 +136,10 @@ export default function Landing() {
       <section className="hero container anime-page">
         <div className="hero-grid">
           <div className="hero-copy">
-            <div className="hero-badges">
-              <span className="feature-pill">Instagram &middot; YouTube &middot; TikTok</span>
-              <span className="feature-pill">Telegram &middot; Twitter &middot; Facebook</span>
-              <span className="feature-pill"><Icon name="zap" size={14} /> Auto-delivery</span>
-            </div>
+            <span className="hero-eyebrow">
+              <span className="live-dot" aria-hidden="true" />
+              Crypto-powered SMM panel
+            </span>
             <h1>
               Grow your pages.<br />
               <span className="grad-text">Pay with crypto.</span>
@@ -143,13 +152,14 @@ export default function Landing() {
               <Link to={cta} className="btn btn-primary btn-lg">Start Boosting <Icon name="rocket" size={17} stroke={1.9} /></Link>
               <Link to="/signup" className="btn btn-outline btn-lg">Create Free Account</Link>
             </div>
-            <div className="platform-deco" aria-hidden="true">
-              <span><Icon name="camera" size={18} /></span>
-              <span><Icon name="play" size={18} /></span>
-              <span><Icon name="music" size={18} /></span>
-              <span><Icon name="send" size={18} /></span>
-              <span><Icon name="birds" size={18} /></span>
-              <span><Icon name="thumbsUp" size={18} /></span>
+            <div className="hero-badges">
+              {PLATFORMS.map(({ name, icon, c }) => (
+                <span key={name} className="brand-chip" style={{ '--c': c }}>
+                  <Icon name={icon} size={14} />
+                  {name}
+                </span>
+              ))}
+              <span className="feature-pill"><Icon name="zap" size={14} /> Auto-delivery</span>
             </div>
             <div className="hero-stats">
               <Stat n={stats.services} label="Services" />
@@ -166,16 +176,17 @@ export default function Landing() {
 
       {/* Popular services — real data from /api/landing/services */}
       <section className="section container" id="services">
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        <div className="section-head">
+          <span className="eyebrow">Services</span>
           <h2 className="section-title">Popular services</h2>
-          <p className="section-sub" style={{ margin: '0 auto' }}>A sample of what is inside — full catalog after login.</p>
+          <p className="section-sub">A sample of what is inside — full catalog after login.</p>
         </div>
         {preview.length > 0 ? (
           <div className="grid grid-4 home-grid" style={{ marginTop: 24 }}>
             {preview.map((s) => {
               const c = CAT_COLORS[s.category] || CAT_COLORS.default;
               return (
-                  <div key={s.id} className="card hoverable service-tile">
+                <div key={s.id} className="card hoverable service-tile" style={{ '--c': c }}>
                   <div className="flex between" style={{ marginBottom: 10 }}>
                     <span className="svc-icon" style={{ background: c + '1f', border: '1px solid ' + c + '55', color: c }}>
                       <Icon name={iconFor(s.name + s.category)} size={20} stroke={1.6} />
@@ -199,9 +210,10 @@ export default function Landing() {
 
       {/* Benefits */}
       <section className="section container">
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        <div className="section-head">
+          <span className="eyebrow">Why us</span>
           <h2 className="section-title">Why InstaSMM</h2>
-          <p className="section-sub" style={{ margin: '0 auto' }}>Everything you need to run your growth on autopilot.</p>
+          <p className="section-sub">Everything you need to run your growth on autopilot.</p>
         </div>
         <div className="grid grid-3 home-grid" style={{ marginTop: 24 }}>
           {BENEFITS.map(({ icon, title, body }) => (
@@ -218,9 +230,10 @@ export default function Landing() {
 
       {/* How it works */}
       <section className="section container" id="how-it-works">
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        <div className="section-head">
+          <span className="eyebrow">Process</span>
           <h2 className="section-title">How it works</h2>
-          <p className="section-sub" style={{ margin: '0 auto' }}>From sign-up to delivery in four steps.</p>
+          <p className="section-sub">From sign-up to delivery in four steps.</p>
         </div>
         <div className="grid grid-4 home-grid" style={{ marginTop: 24 }}>
           {STEPS.map(({ n, icon, title, body }) => (
@@ -238,9 +251,10 @@ export default function Landing() {
 
       {/* Payments */}
       <section className="section container" id="payments">
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        <div className="section-head">
+          <span className="eyebrow">Payments</span>
           <h2 className="section-title">Payments</h2>
-          <p className="section-sub" style={{ margin: '0 auto' }}>Fast crypto deposits, credited to your INR wallet.</p>
+          <p className="section-sub">Fast crypto deposits, credited to your INR wallet.</p>
         </div>
         <div className="grid grid-3 home-grid" style={{ marginTop: 24, maxWidth: 880, marginLeft: 'auto', marginRight: 'auto' }}>
           {PAYMENT_METHODS.map(({ icon, name, sub, tag }) => (
@@ -258,9 +272,10 @@ export default function Landing() {
 
       {/* Security */}
       <section className="section container" id="security">
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        <div className="section-head">
+          <span className="eyebrow">Security</span>
           <h2 className="section-title">Built secure</h2>
-          <p className="section-sub" style={{ margin: '0 auto' }}>Serious engineering behind a simple interface.</p>
+          <p className="section-sub">Serious engineering behind a simple interface.</p>
         </div>
         <div className="grid grid-4 home-grid" style={{ marginTop: 24 }}>
           {SECURITY.map(({ icon, title, body }) => (
@@ -275,7 +290,8 @@ export default function Landing() {
 
       {/* FAQ */}
       <section className="section container" id="faq" style={{ maxWidth: 760 }}>
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        <div className="section-head">
+          <span className="eyebrow">FAQ</span>
           <h2 className="section-title">Frequently asked questions</h2>
         </div>
         <div className="stack" style={{ marginTop: 24, maxWidth: 680, marginLeft: 'auto', marginRight: 'auto' }}>
@@ -285,7 +301,8 @@ export default function Landing() {
 
       {/* CTA / support */}
       <section className="container" id="support" style={{ padding: '20px 0 48px' }}>
-        <div className="card card-gradient" style={{ textAlign: 'center', padding: '40px 20px' }}>
+        <div className="card card-gradient cta-card">
+          <span className="eyebrow">Support</span>
           <h2 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '-0.02em' }}>Ready to boost?</h2>
           <p className="muted" style={{ margin: '10px auto 22px', maxWidth: 460 }}>
             Create your account, top up with LTC or USDT, and place your first order in under a minute.
@@ -312,7 +329,7 @@ export default function Landing() {
           </div>
         </div>
       </footer>
-    </>
+    </div>
   );
 }
 
