@@ -127,7 +127,7 @@ export const config = {
     apiKey: String(process.env.VCGETAWAY_API_KEY || '').trim(),
     apiUrl: String(process.env.VCGETAWAY_API_URL || 'https://vcgatewaypro.com/payment_api.php').trim(),
     webhookSecret: String(process.env.VCGETAWAY_WEBHOOK_SECRET || '').trim(),
-    upiId: String(process.env.VCGETAWAY_UPI_ID || 'paytm.s1dw5n0@pty').trim(),
+    upiId: String(process.env.VCGETAWAY_UPI_ID || 'paytm.s1dw5n5@pty').trim(),
     // Automatic wallet crediting from a verified provider status. This flag is
     // necessary but NOT sufficient: crediting also requires a confirmed
     // verification contract in vcGatewayAdapter.js. Keep false until both are

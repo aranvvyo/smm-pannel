@@ -15,10 +15,7 @@ Set these on the server only. Never commit them, never paste the key into chat.
 | `VCGETAWAY_UPI_ID` | Provider dashboard | Receiving UPI ID. See the mismatch note below. |
 | `VCGETAWAY_WEBHOOK_SECRET` | Provider (only if a webhook exists) | Not used yet. Leave empty. |
 
-Mismatch to confirm before the test: the code default for `VCGETAWAY_UPI_ID`
-is `paytm.s1dw5n0@pty`, while the provider details supplied for this task give
-`paytm.s1dw5n5@pty`. The default was not changed. Set the variable explicitly
-to the value you confirm with the provider, then check the QR (step 3).
+The code default for `VCGETAWAY_UPI_ID` is `paytm.s1dw5n5@pty`, the value confirmed for this provider. Setting the variable overrides it. Check the QR in step 2.
 
 Do not change `autoCreditEnabled` in `server/config.js`.
 
