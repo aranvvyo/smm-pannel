@@ -11,7 +11,7 @@ Sources checked (2026-10-13):
 ## A. Explicit payment-provider requirements (quoted from the Terms)
 
 1. Terms §2.11: the platform may not be used "for any purpose that is unlawful, illegal, fraudulent".
-2. Terms §14.7(vi): the merchant may not "accept transactions relating to goods or services that fall outside the approved description". This makes the approved business description binding. Any change in the service described to Razorpay requires notice.
+2. Terms §14.7(vi): the merchant may not "accept transactions relating to goods or services that fall outside the approved description". This makes the approved business description binding. The clause itself does not say what notice is required for a change; that must be confirmed with Razorpay.
 3. Terms §14.10: the merchant may not use the services "for the sale, promotion, facilitation, or acceptance of payments related to" a list of restricted items. Read the full clause before accepting payments.
 4. Terms §14.5 and §14.8: disputes about non-delivery, delay or quality are the merchant's responsibility, and so is "all risk associated with the sale and delivery".
 5. Terms, Part B, Part I, Clause 2.1: chargeback liability "solely rests with" the merchant.

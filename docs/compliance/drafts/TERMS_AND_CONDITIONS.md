@@ -24,7 +24,8 @@ InstaSMM lets you place orders for social-media metrics for profiles and posts t
 
 ## 5. Wallet and payments
 
-- Deposits are credited to your wallet in INR. Crypto deposits are converted using the rate and method stated at checkout. REQUIRED: owner to confirm the rate source and timing.
+- Deposits are credited to your wallet in INR. The checkout page shows an indicative rate. The credited amount uses the rate in effect when the funds are credited. REQUIRED: owner to confirm the rate source and how frequently it updates.
+- Partial and excess crypto payments are handled as stated in the Refund & Cancellation Policy, section 4.
 - Wallet balance is not a bank account and does not earn interest.
 - See the Refund & Cancellation Policy for returns of money.
 

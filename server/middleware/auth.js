@@ -16,6 +16,19 @@ function tokenHash(token) {
   return createHash('sha256').update(token).digest('hex');
 }
 
+// Session cookie options. Secure by default: the production site is served over
+// HTTPS, and a Secure cookie is never sent over plain HTTP. COOKIE_SECURE=0 is
+// for local plain-HTTP development only. Set it nowhere in production.
+export function sessionCookieOptions(maxAge, env = process.env) {
+  return {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: env.COOKIE_SECURE !== '0',
+    maxAge,
+    path: '/',
+  };
+}
+
 export function startSession(res, user, ip) {
   const db = getDb();
   const token = randomBytes(32).toString('hex');
@@ -23,13 +36,7 @@ export function startSession(res, user, ip) {
   db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
   db.prepare('INSERT INTO sessions (token_hash, user_id, ip, expires_at, created_at) VALUES (?,?,?,?,?)')
     .run(tokenHash(token), user.id, ip, expires, Date.now());
-  res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'strict',
-    secure: false, // local http hosting; flip behind reverse proxy TLS if needed
-    maxAge: config.sessionTtlMs,
-    path: '/',
-  });
+  res.cookie(COOKIE_NAME, token, sessionCookieOptions(config.sessionTtlMs));
 }
 
 export function logout(sessionToken) {

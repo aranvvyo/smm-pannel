@@ -46,3 +46,9 @@ Not yet made. These require your decision first, and they are on this review bra
 ## 7. Git and deployment status
 - Review work is on branch `compliance/razorpay-review-draft`. It does not deploy: Render auto-deploys only `main`.
 - Nothing on `main` was changed in this review.
+
+## 8. Status update (second pass)
+
+- Done on the review branch: session cookie Secure default (code, tested), landing copy corrections, refund and privacy draft corrections, payment-route map (`PAYMENT_ROUTES.md`), Razorpay support inquiry draft (`RAZORPAY_SUPPORT_INQUIRY.md`, not sent).
+- Still needed from you: physical address, verified support email and phone, support hours and response time, grievance details if required, live payment-method list, refund process for overpayments, rate-update description, cookie-security deployment confirmation, and a decision on whether to keep the "Deposit in INR" entry points visible while INR creation is paused.
+- Still needed from Razorpay: written eligibility for purchased engagement, subcategory confirmation, and whether the individual-proprietor billing label is acceptable.

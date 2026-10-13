@@ -24,11 +24,17 @@ REQUIRED (owner): typical timeframe for a verifying order to be resolved; whethe
 
 ## 4. Deposits
 
-- **Crypto deposits** are credited to your wallet after the blockchain payment is confirmed. A payment that does not match the expected amount or address is not credited automatically; it is reviewed by an admin.
-- **Duplicate payments** are credited once. If you paid twice, contact support with the transaction reference. Excess funds are handled as a wallet credit or a manual refund, as decided by the owner (REQUIRED).
-- **Failed or expired deposits** are not credited.
+Verified against the crypto deposit code (`server/lib/apirone.js`, `server/routes/webhooks.js`, `creditDeposit`):
 
-REQUIRED (owner): crypto refund process, if any, for overpayments and duplicate payments; the network and address details to be used for any manual refund.
+- **Crypto deposits are credited in steps.** Each payment is checked with the payment processor before anything is credited. The wallet is credited for the amount actually received, in INR at the exchange rate in effect when that amount is credited. A deposit that is only partly paid shows "in progress" and is credited for what has arrived. It is marked confirmed once the full invoice amount is received.
+- **Each amount is credited once.** Repeated notifications from the processor do not credit the same funds twice.
+- **Overpayment.** The wallet is credited only up to the invoice amount. Any excess is **not** credited automatically. An admin reviews it. How any excess is returned is REQUIRED (owner decision).
+- **Payment after the invoice has expired.** It is **not** credited automatically. An admin verifies it manually before any credit is made.
+- **Two separate invoices paid for the same order.** Each invoice is credited for its own received funds. Neither is refunded automatically. Contact support with both transaction references. REQUIRED (owner): how such a case is returned.
+- **Failed or expired deposits** are never credited automatically.
+- **INR (UPI) deposits** are currently not open to customers: the code pauses new INR deposits by default and the payment-gateway connection is not active. This section applies only once the owner enables INR deposits and the gateway is connected. REQUIRED (owner): the INR refund process at that time.
+
+REQUIRED (owner): the crypto refund route and network for any excess or duplicate funds returned manually, and whether that is offered at all.
 
 ## 5. Delivery delays and quality issues
 

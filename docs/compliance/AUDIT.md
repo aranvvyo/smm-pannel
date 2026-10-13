@@ -63,3 +63,19 @@ Status: working document for the owner. Not a legal opinion. Nothing here is pub
 - Not runnable here: `npm run build` (Vite not installed in `client/`).
 - No browser-based responsive or accessibility test was possible in this environment.
 - Public-domain checks: blocked by robots policy for `/terms`.
+
+## 8. Status update (second pass, review branch)
+
+Changes made on `compliance/razorpay-review-draft` since `7e2101b`:
+
+- Session cookie: `secure` is now on by default. It was hard-coded `false` before. `COOKIE_SECURE=0` is the only opt-out. Test: `scripts/test-session-cookie.mjs`. Not deployed.
+- Landing copy: removed "Instant Delivery", "No-Loss Guarantee", "Best Prices", "in seconds", "24/7", "encrypted cookies" and the claim that cancelled orders return the full amount. Details in the commit diff.
+- Refund draft section 4 rewritten from `creditDeposit`: partial payments credit the received fraction; overpayment is capped and not refunded automatically; late payments on expired invoices need manual verification; duplicate notifications are idempotent.
+- Privacy draft: verified IP logging (`security_logs`, `sessions.ip`), the 30-day session TTL default, the processor and supplier disclosures, and that no analytics scripts are in the application code.
+- Corrected the RAZORPAY_REQUIREMENTS summary of Terms §14.7(vi), which had claimed a notice requirement that the clause does not state.
+
+Still open:
+
+- Footer and legal pages are not implemented. Publishing them requires owner approval, and the drafts still contain REQUIRED fields that would render publicly. No build tool is available to verify JSX.
+- Public-domain checks remain blocked (robots policy on instasmm.store).
+- Crypto processor credentials in production were not inspected.
