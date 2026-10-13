@@ -92,3 +92,13 @@ Not done, and why:
 - **Footer links to Terms and Privacy: not added.** Those pages are live today and contain statements that contradict the code (the Terms refund wording). Linking to them would increase exposure before replacement. Add the links together with the approved replacements.
 - **About, Contact, Refund and Payment & Delivery pages: not created.** Their drafts still contain REQUIRED fields that would render publicly: physical address, verified support contact, support hours, grievance details, refund timeframes, and the rate-update description. Per the brief, these stay unmerged until those fields are filled in by the owner.
 - **Build verification:** not available. Vite is not installed, so the client build cannot run. The changed client files were checked for syntax with TypeScript's parser only.
+
+## 10. Final package pass (this commit)
+
+Changed in this pass:
+- Live `/terms` §4 and `/privacy` §3–§7 (`client/src/pages/client/Terms.jsx`, `Privacy.jsx`): corrected the statements that contradicted code (wallet refund wording, "encrypted databases", "regular security audits", "do not store personal information" on cookies, "we do not share", deletion-on-request promise). Wording is limited to what the code does. Not reviewed by a lawyer.
+- `RAZORPAY_SUPPORT_INQUIRY.md` rewritten to disclose purchased engagement delivered through supplier APIs and to ask for written eligibility and merchant category.
+- `PAYMENT_ROUTES.md`: found that the admin manual INR verify route (`POST /api/admin/deposits/inr/:id/verify`) credits the INR wallet directly, without the pause or the auto-credit flag. Admin-only and not changed here; owner decision recorded.
+- Server-side INR protections checked: creation and claim are blocked by `assertDepositsOpen('inr')`; the client check path cannot credit while `autoCreditEnabled` is false.
+
+Verified by tests on this branch: order lifecycle 15/15, session cookie 5/5, withdrawal execution 14/14, global markup 8/8, balance race 5/5, crypto deposits 13/13, INR auto-verify 52/52, VC protocol 25/25. `test-pg-bridge-safety` 5/6 (pre-existing SIGTERM check). Express suites and the Vite build were not runnable here.

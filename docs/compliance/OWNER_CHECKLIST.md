@@ -1,12 +1,15 @@
 # Owner checklist and publication status
 
-## 1. Safe changes ready to implement
-- Footer links on public pages (About, Contact, Terms, Privacy, Refund, Payment & Delivery) once the drafts are approved.
-- Removing "No-Loss Guarantee", "Instant Delivery" and "24/7 automated" wording from the landing page.
-- Correcting the Terms §4 wallet refund statement to match the refund process you approve.
-- Correcting the Privacy disclosures (third parties, IP logging, cookie lifetime after verification).
+## 1. Changes on the review branch
 
-Not yet made. These require your decision first, and they are on this review branch only.
+Done (on `compliance/razorpay-review-draft` only, not deployed):
+- Landing copy: overclaims removed (see section 8).
+- Terms §4 (`client/src/pages/client/Terms.jsx`): the "non-refundable except at admin discretion" statement is replaced with what the code does (wallet-only refunds; supplier refusals refunded once; other refunds decided by the operator; no wallet withdrawal).
+- Privacy (`client/src/pages/client/Privacy.jsx`): removed "encrypted databases", "regular security audits", "do not store personal information" (cookies), and "no sharing" wording; named the processor, supplier and hosting categories; IP logging disclosed; account deletion described as manual.
+
+Still open, needing your decision:
+- Footer links to About, Contact, Terms, Privacy, Refund, Payment & Delivery. Not added: the About/Contact/Refund/Payment pages do not exist yet, and their drafts contain REQUIRED fields.
+- Publishing the drafts in `drafts/` (owner approval and the REQUIRED fields first).
 
 ## 2. Draft content awaiting owner approval
 - `drafts/REFUND_CANCELLATION.md`
@@ -16,7 +19,7 @@ Not yet made. These require your decision first, and they are on this review bra
 
 ## 3. Missing facts preventing publication
 - **Physical business address — REQUIRED, OWNER MUST PROVIDE.** Not supplied. Not invented.
-- Support email: supplied as arnavsingh98001@gmail.com, not verified. The email on this workspace's account is arnavsingh98002@gmail.com, and the earlier address was also 98002. Please confirm which address is the support address.
+- Support email: supplied as arnavsingh98001@gmail.com, not verified. Earlier drafts and the review workspace used a different address. Please confirm which address is the support address; this review does not substitute one for the other.
 - Support phone 7457945493: supplied, not verified.
 - Support hours, response time, escalation contact, and any grievance officer.
 - Business history statement (About Us) — only if you can state it accurately.
@@ -52,3 +55,19 @@ Not yet made. These require your decision first, and they are on this review bra
 - Done on the review branch: session cookie Secure default (code, tested), landing copy corrections, refund and privacy draft corrections, payment-route map (`PAYMENT_ROUTES.md`), Razorpay support inquiry draft (`RAZORPAY_SUPPORT_INQUIRY.md`, not sent).
 - Still needed from you: physical address, verified support email and phone, support hours and response time, grievance details if required, live payment-method list, refund process for overpayments, rate-update description, cookie-security deployment confirmation, and a decision on whether to keep the "Deposit in INR" entry points visible while INR creation is paused.
 - Still needed from Razorpay: written eligibility for purchased engagement, subcategory confirmation, and whether the individual-proprietor billing label is acceptable.
+
+## 9. Final package for review (third pass)
+
+Ready for your review, in this order:
+1. `RAZORPAY_SUPPORT_INQUIRY.md`. Discloses purchased engagement delivered through supplier APIs and asks Razorpay for written eligibility and merchant category. Fill the square-bracket items, then send by the steps in that file. Not sent.
+2. `PAYMENT_ROUTES.md`. Note the admin manual INR verify route: it can credit the INR wallet and is not gated by the pause or the auto-credit flag. Decide whether to keep, gate or remove it. Not changed on this branch.
+3. `SERVICE_ELIGIBILITY.md`. The decision on whether to keep selling purchased engagement at all is still yours.
+
+Owner inputs still needed before any draft can be published:
+- Business address (REQUIRED, not supplied).
+- Support email: `arnavsingh98001@gmail.com` was supplied for this review. It differs from the address used in earlier drafts. Confirm which is the support address; the inquiry does not substitute one for the other.
+- Support phone `7457945493`: supplied, not verified.
+- Support hours, response time, grievance details, refund timeframes, rate-update description, GST status.
+- Whether `instasmm.store` is served by this repository's Render service (not verified from here).
+
+Not done, and deliberately so: no Razorpay checkout, no INR auto-credit, no change to secrets, environment variables, database contents or Render settings, no merge to `main`, no deploy.
