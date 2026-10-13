@@ -299,11 +299,24 @@ export async function submitWithdrawal(args) {
     `/accounts/${encodeURIComponent(apironeCreds().account_id)}/transfer`,
     { method: 'POST', body: withdrawalBody(args) }
   );
-  if (!ok) throw new Error(`Withdrawal rejected by the gateway (${status}): ${(text || 'see gateway logs').slice(0, 160)}`);
+  // Failure classes (read by server/lib/withdrawalExecution.js):
+  //   kind 'rejected' — a 4xx answer, so the gateway refused and nothing was sent.
+  //                     408 (request timeout) is NOT a refusal.
+  //   kind 'unknown'  — anything else, including 5xx, timeouts and network errors.
+  //                     The transfer may have been broadcast.
+  if (!ok) {
+    const err = new Error(`Withdrawal not accepted by the gateway (HTTP ${status}).`);
+    err.kind = status >= 400 && status < 500 && status !== 408 ? 'rejected' : 'unknown';
+    throw err;
+  }
   // The gateway answers with its own payment id — we store THAT, plus the real
   // on-chain transaction hash(es) from `txs` when present. Nothing is invented.
   const ref = String(data?.id ?? data?.transfer ?? data?.transaction ?? '').trim();
-  if (!ref) throw new Error('Gateway accepted the transfer but returned no reference — nothing recorded, verify manually.');
+  if (!ref) {
+    const err = new Error('Gateway accepted the transfer but returned no reference. Verify it on the gateway dashboard before doing anything else.');
+    err.kind = 'unknown';
+    throw err;
+  }
   const txHash = (Array.isArray(data?.txs)
     ? String(data.txs.find((t) => typeof t === 'string' && String(t).trim()) ?? '').trim()
     : '') || null;

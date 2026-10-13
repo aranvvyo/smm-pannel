@@ -21,10 +21,13 @@ const UNSUPPORTED = [
 
 const coinOf = (minor, dec) => (Number(minor || 0) / Math.pow(10, dec)).toLocaleString('en-US', { maximumFractionDigits: dec });
 const maskAddr = (a) => { a = String(a || ''); return a.length <= 12 ? a : `${a.slice(0, 6)}…${a.slice(-4)}`; };
+// "Sent" means the gateway accepted the transfer. On-chain confirmation is not
+// verified here, so it is not labelled "Completed".
 const STATUS = {
-  sent: ['Completed', 'badge-success'],
+  sent: ['Sent to gateway', 'badge-success'],
   pending: ['Pending', 'badge-warn'],
-  failed: ['Failed', 'badge-danger'],
+  failed: ['Failed — nothing sent', 'badge-danger'],
+  unknown: ['Unknown — do not retry, verify on gateway', 'badge-danger'],
 };
 
 export default function AdminWithdraw() {

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getDb, getExchangeRate, isUniqueViolation } from '../db.js';
+import { getDb, getExchangeRate } from '../db.js';
 import { requireAdmin, logSecurity } from '../middleware/auth.js';
 import {
   isApironeConfigured, apironeCreds, apironeAuthFetch,
@@ -8,6 +8,7 @@ import {
   cryptoMinorToUsdCents, redactApironeKey, CURRENCY_MAP,
 } from '../lib/apirone.js';
 import { ah, sendErr } from './_helpers.js';
+import { executeWithdrawal } from '../lib/withdrawalExecution.js';
 
 const r = Router();
 r.use(requireAdmin); // Admin/Owner-only — clients get 403 on the whole surface.
@@ -215,100 +216,43 @@ r.post('/', ah(async (req, res) => {
   const { payload, address, mode, amountMinor } = args;
 
   const rate = getExchangeRate();
-
-  // Duplicate prevention. The UI supplies one idempotency key per transfer
-  // intent (regenerated only when a field changes), so a double-click /
-  // accidental network retry can never double-pay. Scripted callers that send
-  // no key get a deterministic one derived from the exact parameters.
   const suppliedKey = String(body.idempotency_key || '').trim();
   if (suppliedKey.length > 64) return sendErr(res, 400, 'Invalid idempotency key.');
+  // The UI supplies one key per transfer intent. Scripted callers get a key
+  // derived from the exact parameters, so an identical resend is still blocked.
   const key = suppliedKey || `w:${mode}:${currency}:${address}:${amountMinor}`;
 
-  // Guard 1 — same transfer anywhere inside the last 2 minutes (double-click,
-  // racing tab, lost-response retry). Safe: a genuinely new payout also has a
-  // fresh UI key, and only identical (address+amount+currency) sends collide.
-  const recent = db.prepare(
-    `SELECT id FROM withdrawals
-     WHERE (idempotency_key=? OR (mode=? AND currency=? AND address=? AND amount_minor=?))
-       AND status IN ('sent','pending') AND created_at > ? LIMIT 1`
-  ).get(key, mode, currency, address, amountMinor, Date.now() - 120_000);
-  if (recent) {
-    return sendErr(res, 409, 'This withdrawal is already being processed — no duplicate was created.', 'DUPLICATE');
-  }
-  // Guard 2 — same idempotency key already SENT within the last 24h (a delayed
-  // retry of a transfer that actually landed). Older identical payouts remain
-  // legitimate and are allowed through.
-  const sent24h = db.prepare(
-    `SELECT id FROM withdrawals WHERE idempotency_key=? AND status='sent' AND created_at > ? LIMIT 1`
-  ).get(key, Date.now() - 86_400_000);
-  if (sent24h) {
-    return sendErr(res, 409, 'This withdrawal was already sent — no duplicate was created.', 'DUPLICATE');
-  }
-
-  // Informational USD equivalent (best-effort live ticker). Sweep has no price
-  // until the gateway reports — stored as 0 ("unknown"), never invented.
+  // Informational USD value (best-effort ticker). Sweep stays 0 ("unknown").
   const amountUsd = mode === 'amount'
     ? (await cryptoMinorToUsdCents(currency, amountMinor) ?? 0)
     : 0;
 
-  const now = Date.now();
-  try {
-    const result = await submitWithdrawal(payload);
-    // A lost-response retry re-INSERTs the same key → UNIQUE column constraint
-    // rejects it; surface that as the duplicate outcome rather than a 500.
-    try {
-      db.prepare(
-        `INSERT INTO withdrawals (admin_id, currency, currency_code, address, mode,
-          amount_minor, amount_usd, rate_inr, fee, subtract_fee,
-          transfer_ref, tx_hash, status, idempotency_key, created_at, executed_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'sent',?,?,?)`
-      ).run(
-        req.user.id, currency, cryptoCurrencyCode(currency), address, mode,
-        amountMinor, amountUsd, rate, payload.fee, payload['subtract-fee-from-amount'] ? 1 : 0,
-        result.ref, result.txHash, key, now, now
-      );
-    } catch (ins) {
-      // A lost-response retry re-INSERTs the same key → the UNIQUE
-      // column constraint rejects it; surface that as the duplicate
-      // outcome rather than a 500. isUniqueViolation accepts both
-      // SQLite's "UNIQUE constraint failed" and PostgreSQL's
-      // "duplicate key value violates unique constraint" (23505).
-      if (isUniqueViolation(ins)) {
-        return sendErr(res, 409, 'This withdrawal was already booked — no duplicate was created.', 'DUPLICATE');
-      }
-      throw ins;
-    }
-    logSecurity(req.user.id, req.user.email, `withdraw_${mode}`, req.ip);
-    return res.status(201).json({
-      ok: true,
-      withdrawal: {
-        mode,
-        currency,
-        address,
-        amount_minor: amountMinor,
-        amount_usd: amountUsd,
-        transfer_ref: result.ref,
-        tx_hash: result.txHash,
-        status: 'sent',
-      },
-    });
-  } catch (e) {
-    // A failed attempt is still recorded (status=failed) so the admin has an
-    // audit trail of what was attempted and why it bounced. The key is
-    // suffixed so a failure never poisons the dedupe key.
-    db.prepare(
-      `INSERT INTO withdrawals (admin_id, currency, currency_code, address, mode,
-        amount_minor, amount_usd, rate_inr, fee, subtract_fee,
-        status, error, idempotency_key, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,'failed',?,?,?)`
-    ).run(
-      req.user.id, currency, cryptoCurrencyCode(currency), address, mode,
-      amountMinor, amountUsd, rate, payload.fee, payload['subtract-fee-from-amount'] ? 1 : 0,
-      String(redactApironeKey(e.message)).slice(0, 240), `${key}#${now}`, now
-    );
-    logSecurity(req.user.id, req.user.email, 'withdraw_failed', req.ip);
-    return sendErr(res, 502, 'The withdrawal could not be submitted right now. Nothing was sent. See the audit log for details.', 'WITHDRAWAL_FAILED');
+  const out = await executeWithdrawal({
+    db,
+    key,
+    submit: () => submitWithdrawal(payload),
+    redact: redactApironeKey,
+    row: {
+      adminId: req.user.id, currency, currencyCode: cryptoCurrencyCode(currency), address, mode,
+      amountMinor, amountUsd, rate, fee: payload.fee, subtractFee: payload.subtractFee,
+    },
+  });
+  if (!out.ok) {
+    logSecurity(req.user.id, req.user.email, `withdraw_${out.code.toLowerCase()}`, req.ip);
+    return sendErr(res, out.http, out.message, out.code);
   }
+  logSecurity(req.user.id, req.user.email, `withdraw_${mode}`, req.ip);
+  return res.status(201).json({
+    ok: true,
+    withdrawal: {
+      mode, currency, address,
+      amount_minor: amountMinor,
+      amount_usd: amountUsd,
+      transfer_ref: out.result.ref,
+      tx_hash: out.result.txHash,
+      status: 'sent',
+    },
+  });
 }));
 
 // Shared argument parsing + validation for amount and sweep modes. `address` is
