@@ -308,3 +308,18 @@ CREATE INDEX IF NOT EXISTS idx_inr_deposits_user ON inr_deposits(user_id, status
 -- table already exists without order_id, so CREATE TABLE IF NOT EXISTS is a no-op
 -- and an index here would abort startup. db.js ensureColumnsPg adds the column,
 -- then creates idx_inr_deposits_order.
+
+-- Customer and admin refill requests (see schema.sql for status meanings).
+CREATE TABLE IF NOT EXISTS order_refill_requests (
+  id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id          BIGINT NOT NULL REFERENCES orders(id),
+  user_id           BIGINT NOT NULL REFERENCES users(id),
+  status            TEXT NOT NULL,
+  provider_refill_id TEXT,
+  reason            TEXT,
+  created_at        BIGINT NOT NULL,
+  updated_at        BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_refill_order ON order_refill_requests(order_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_refill_inflight ON order_refill_requests(order_id)
+  WHERE status IN ('REQUESTED','AMBIGUOUS');

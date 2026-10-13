@@ -71,3 +71,23 @@ Owner inputs still needed before any draft can be published:
 - Whether `instasmm.store` is served by this repository's Render service (not verified from here).
 
 Not done, and deliberately so: no Razorpay checkout, no INR auto-credit, no change to secrets, environment variables, database contents or Render settings, no merge to `main`, no deploy.
+
+## 10. Refill, cancel and money-path changes (this pass)
+
+Changed on the review branch, not deployed:
+- Customer Refill button on the Orders page, shown only when the service supports refill (`services.refill` as synced from the supplier) and the order is COMPLETED or PARTIAL. Otherwise a reason is shown.
+- Server-side refill: ownership, service flag, order status, supplier reference, and one customer refill per order. Duplicates and concurrent requests are blocked. Stored in `order_refill_requests`. The supplier refill id is never shown to customers.
+- Admin refill no longer overwrites the order status or remains. A refill is treated as a separate supplier order and needs a supplier-returned id.
+- Admin cancel refunds only after the supplier's own status reports CANCELED. The refund uses the supplier-confirmed unused quantity: price × unused ÷ quantity, integer paise, half-up. If the status cannot be confirmed, nothing is refunded and the attempt is logged (`cancel_unconfirmed`).
+
+Owner decisions still open:
+- Customer self-service cancel is NOT built. The published refund draft and Terms say customers ask support and the operator decides. Building a customer cancel button changes that policy and needs your approval.
+- Refill eligibility rule (COMPLETED or PARTIAL only) is an assumption. Confirm it against the supplier's documentation and your policy.
+- Refill window: not implemented. The supplier defines it. Not verified.
+- Refill: one customer refill per order is a deliberate limit. Confirm.
+- A refill left AMBIGUOUS (timeout or no id) blocks further refills on that order. There is no admin screen to clear it yet; clear it in the database only after checking the supplier.
+- Supplier cancel where the order was cancelled at the supplier but the cancel status check failed: nothing is refunded automatically. Review `security_logs` (`cancel_unconfirmed`) and refund manually if the supplier confirms.
+- Refill progress is not tracked after the supplier accepts the request. The order status does not change.
+- Supplier refill and cancel responses are based on the existing SMM-style adapter contract. The supplier's own API documentation was not available in this repository and was not verified.
+
+Razorpay: unchanged. No checkout, no live mode, no INR auto-credit.

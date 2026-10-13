@@ -1,5 +1,8 @@
 import { registerProviderAdapter } from '../provider.js';
 
+// Test-only simulation state: provider ids the demo supplier has cancelled.
+const demoCancelled = new Set();
+
 // ---------------------------------------------------------------------------
 // Demo provider — a pure, STATELESS simulator used ONLY by the automated test
 // suite (SMM_TEST=1 server). It is NEVER registered in a normal production
@@ -110,6 +113,11 @@ function factory() {
       return { id: fakeProviderId(orderRef, String(service)), externalRef: orderRef, status: 'PENDING' };
     },
     async orderStatus(id, orderRow) {
+      // A demo cancel is remembered so the status check reports it, as a real supplier would.
+      if (demoCancelled.has(String(id))) {
+        const q = orderRow ? Number(orderRow.quantity) : 0;
+        return { id, status: 'CANCELED', startCount: 0, remains: q, charge: undefined, currency: 'INR' };
+      }
       // Derive demo progression from the REAL order row.
       if (orderRow) {
         const next = demoAdvance(orderRow);
@@ -127,8 +135,8 @@ function factory() {
     async balance() {
       return { balance: 100000.0, currency: 'USD' };
     },
-    async cancel() { return { status: 'CANCELED' }; },
-    async refill() { return { status: 'IN_PROGRESS' }; },
+    async cancel(id) { demoCancelled.add(String(id)); return { status: 'CANCELED' }; },
+    async refill(id) { return { refill: `DEMO-REFILL-${String(id).slice(0, 24)}` }; },
   };
 }
 

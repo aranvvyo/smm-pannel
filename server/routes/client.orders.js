@@ -6,6 +6,7 @@ import {
   InsufficientBalanceError, ProviderError, DuplicateOrderError, OrderVerifyingError,
 } from '../lib/orderRouter.js';
 import { ah, sendErr } from './_helpers.js';
+import { requestRefill, RefillError } from '../lib/orderRefill.js';
 
 // POST /api/quote — preview cost + coupon effect (server-side math only).
 // Mounted separately at /api/quote.
@@ -87,5 +88,25 @@ r.get('/:id', requireAuth, (req, res) => {
   if (!order || order.user_id !== req.user.id) return sendErr(res, 404, 'Order not found.');
   return res.json({ order: orderWithService(db, order.id) });
 });
+
+// POST /api/orders/:id/refill — customer refill. Ownership, eligibility, one active
+// refill per order and the supplier's reply are all checked on the server. The
+// supplier id is never returned to the client.
+r.post('/:id/refill', requireAuth, ah(async (req, res) => {
+  const db = getDb();
+  const order = db.prepare('SELECT * FROM orders WHERE id=?').get(Number(req.params.id));
+  if (!order || order.user_id !== req.user.id) return sendErr(res, 404, 'Order not found.');
+  const service = order.service_id
+    ? db.prepare('SELECT id, refill FROM services WHERE id=?').get(order.service_id) : null;
+  const provider = order.provider_id
+    ? db.prepare('SELECT id, adapter, api_url, api_key, active FROM providers WHERE id=?').get(order.provider_id) : null;
+  try {
+    const out = await requestRefill({ db, order, service, provider, actor: 'customer', userId: req.user.id });
+    return res.status(202).json({ ok: true, refill_status: out.status, order: orderWithService(db, order.id) });
+  } catch (e) {
+    if (e instanceof RefillError) return sendErr(res, e.http, e.message, e.code);
+    throw e;
+  }
+}));
 
 export default r;
