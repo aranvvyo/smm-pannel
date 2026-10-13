@@ -14,7 +14,7 @@ Automated purchases of social-media metrics for a customer's own profiles, fulfi
 
 | Concern | Basis | Action |
 |---|---|---|
-| Engagement is purchased artificially rather than earned. The landing page sells it as growth ("order followers… in seconds"). | Landing copy; product description. | Describe it as what it is: automated delivery of the purchased metric. Do not claim organic growth, real audiences or authorised platform access. |
+| Engagement is purchased artificially rather than earned. The original landing copy sold it as growth ("order followers… in seconds"). | Original landing copy (corrected on the review branch). | Describe it as what it is: automated delivery of the purchased metric. Do not claim organic growth, real audiences or authorised platform access. |
 | Platform terms. Most social platforms prohibit buying fake engagement. | Third-party terms, not in this repository. | Lawyer to review before publication. Customers should be told they are responsible for their accounts. |
 | Razorpay Terms §14.7(vi) and §14.10: payment only for the approved description. | Razorpay Terms. | Obtain written eligibility for "purchased social-media engagement" before any Razorpay integration. |
 | Subcategory "Ad and Marketing" may not match the service. | Owner-supplied subcategory. | Confirm with Razorpay. |

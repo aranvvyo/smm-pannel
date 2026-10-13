@@ -27,7 +27,7 @@ InstaSMM (instasmm.store) is operated by Alok Kumar Singh, an individual proprie
 - **Crypto payment processor (Apirone)**: when you deposit crypto, an invoice is created with the processor, and the processor reports payment status for that invoice back to us. The processor's own terms and privacy practices also apply.
 - **INR payment gateway (VC Gateway)**: code for INR (UPI) deposits exists but is not open to customers today. If it is enabled, the payment details needed to match your deposit are shared with it. REQUIRED: confirm before publication.
 - **Supplier services**: to fulfil an order we send the service, quantity and the link you provided to the third-party supplier that performs it. The supplier's own privacy practices apply to what it does with that information. Suppliers are not named in this policy. REQUIRED (owner): decide whether to name them.
-- **Hosting and database**: the application is hosted on Render. Production uses a PostgreSQL database. REQUIRED: confirm the hosting provider's data location and the database provider.
+- **Hosting and database**: the application is hosted on Render. Production is configured to require a PostgreSQL database: the application refuses to start in production without a database connection string. REQUIRED: confirm the hosting provider's data location and the database provider.
 - We do not sell personal information. We do not share it with advertisers. REQUIRED: confirm both statements before publication.
 
 ## 5. How long we keep data

@@ -37,7 +37,7 @@ Not yet made. These require your decision first, and they are on this review bra
 - Session cookie `secure: false` (auth middleware). Owner decision required; the live site uses HTTPS.
 - No account self-deletion; no retention purge job.
 - Provider API keys stored in the database without encryption at rest.
-- Crypto deposit duplicate and underpayment handling not re-verified in this review.
+- Crypto deposit handling verified in code (partial credit, overpayment cap, idempotent credit). Live behaviour with real funds is not tested and must not be tested without owner approval.
 - No customer-facing refund to original payment method exists.
 
 ## 6. Go / no-go

@@ -79,3 +79,16 @@ Still open:
 - Footer and legal pages are not implemented. Publishing them requires owner approval, and the drafts still contain REQUIRED fields that would render publicly. No build tool is available to verify JSX.
 - Public-domain checks remain blocked (robots policy on instasmm.store).
 - Crypto processor credentials in production were not inspected.
+
+## 9. Third pass: website changes and blockers
+
+Done on the review branch:
+
+- INR entry points hidden. The "Deposit INR" nav link and the Wallet "Deposit in INR" button are gated by `INR_DEPOSIT_ENTRY_VISIBLE = false` (`client/src/lib/depositOptions.js`). The `/deposit/inr` page is not removed, and the gateway is not enabled.
+- Session cookie: `Secure` by default, with `COOKIE_SECURE=0` as the only opt-out. Documented in `.env.example`. `trust proxy` was not added. Reason: the `Secure` attribute is set on the `Set-Cookie` header and does not depend on what Express sees for the request. Nothing in the server reads `req.secure` or the protocol. `render.yaml` sets `NODE_ENV=production` and `PUBLIC_BASE_URL=https://instasmm.store`.
+
+Not done, and why:
+
+- **Footer links to Terms and Privacy: not added.** Those pages are live today and contain statements that contradict the code (the Terms refund wording). Linking to them would increase exposure before replacement. Add the links together with the approved replacements.
+- **About, Contact, Refund and Payment & Delivery pages: not created.** Their drafts still contain REQUIRED fields that would render publicly: physical address, verified support contact, support hours, grievance details, refund timeframes, and the rate-update description. Per the brief, these stay unmerged until those fields are filled in by the owner.
+- **Build verification:** not available. Vite is not installed, so the client build cannot run. The changed client files were checked for syntax with TypeScript's parser only.

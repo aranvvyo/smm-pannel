@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext.jsx';
 import { ToastProvider, Spinner } from './ui.jsx';
 import { Layout, Navbar } from './components/Layout.jsx';
+import { INR_DEPOSIT_ENTRY_VISIBLE } from './lib/depositOptions.js';
 
 import Landing from './pages/landing/Landing.jsx';
 import Login from './pages/auth/Login.jsx';
@@ -107,7 +108,7 @@ function ClientShell() {
     ['/orders', 'My Orders'],
     ['/wallet', 'Wallet'],
     ['/deposit', 'Deposit'],
-    ['/deposit/inr', 'Deposit INR'],
+    ...(INR_DEPOSIT_ENTRY_VISIBLE ? [['/deposit/inr', 'Deposit INR']] : []),
     ['/tickets', 'Support'],
     ['/notifications', 'Notifications'],
     ['/profile', 'Profile'],

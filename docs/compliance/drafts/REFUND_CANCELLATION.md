@@ -18,7 +18,7 @@ This policy explains how money moves when an order or deposit does not go as exp
 | The supplier **definitively refuses** the order (for example, insufficient supplier balance or an invalid link). | Your order is marked "Not accepted". The amount is returned to your wallet once, and any coupon use is released. |
 | The order is **accepted** and then fails, is cancelled, or is partly delivered. | The undelivered portion may be credited to your wallet when the order is cancelled by the admin and the service supports it. The delivered portion is not refunded. |
 | The order is **held** because the supplier's answer was unclear (a timeout or an error). | The order shows "Verifying". It is **not** refunded automatically, because the supplier may already have accepted it. An admin checks with the supplier and then either confirms the order or refunds it once. |
-| You **ask to cancel** an order that is still pending. | Cancellation depends on the supplier allowing it. Cancellation requests are reviewed by an admin. If the supplier cancels, the undelivered amount is credited to your wallet. |
+| You **ask for a pending order to be cancelled**. | There is no self-service cancel button. Ask support with the order reference. An admin decides, and can cancel only if the supplier allows it. If the cancellation goes through, the undelivered amount is credited to your wallet. |
 
 REQUIRED (owner): typical timeframe for a verifying order to be resolved; whether the owner commits to a maximum period.
 
