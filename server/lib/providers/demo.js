@@ -102,7 +102,9 @@ function factory() {
     async placeOrder({ service, link, quantity }) {
       // Failure injection for the test suite: "provider error doesn't debit".
       if (TEST_MODE && typeof link === 'string' && link.includes('fail')) {
-        throw new Error('Provider rejected the order (simulated upstream failure).');
+        // A definitive refusal: the simulated supplier said no.
+        throw Object.assign(new Error('Provider rejected the order (simulated upstream failure).'),
+          { kind: 'rejected', category: 'provider_rejected' });
       }
       const orderRef = `ORD-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1e6).toString(36).toUpperCase()}`;
       return { id: fakeProviderId(orderRef, String(service)), externalRef: orderRef, status: 'PENDING' };

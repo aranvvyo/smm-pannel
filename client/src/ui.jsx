@@ -33,6 +33,11 @@ export const ORDER_STATUSES = {
   CANCELLED: { label: 'Canceled', cls: 'badge-danger', dot: '#f87171' },
   FAILED: { label: 'Failed', cls: 'badge-danger', dot: '#f87171' },
   REFUNDED: { label: 'Refunded', cls: 'badge-muted', dot: '#94a3b8' },
+  // Supplier outcome not yet confirmed. Shown truthfully: not started, not charged twice.
+  SUBMITTING: { label: 'Verifying', cls: 'badge-warn', dot: '#fbbf24' },
+  AMBIGUOUS: { label: 'Verifying', cls: 'badge-warn', dot: '#fbbf24' },
+  // Supplier refused; the reservation was refunded once.
+  REJECTED: { label: 'Not accepted · refunded', cls: 'badge-muted', dot: '#94a3b8' },
 };
 
 export function StatusBadge({ status }) {

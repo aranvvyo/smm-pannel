@@ -19,6 +19,16 @@ function sanitizeError(msg, apiKey) {
   return msg;
 }
 
+// Failures are tagged for the order lifecycle (orderLifecycle.classifyProviderFailure):
+//   kind 'rejected' — the supplier answered with an explicit refusal (4xx or an
+//                     {error} body below 500). Nothing was accepted.
+//   kind 'unknown'  — timeout, network failure, 5xx, or a non-JSON reply. The
+//                     supplier may still have accepted the order.
+// The message text is sanitized and is only ever shown to admins.
+function supplierError(message, kind, category) {
+  return Object.assign(new Error(message), { kind, category });
+}
+
 async function fetchJSON(apiUrl, apiKey, form) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -32,9 +42,11 @@ async function fetchJSON(apiUrl, apiKey, form) {
       signal: ctrl.signal,
     });
   } catch (e) {
-    // fetch rejects on network failure / abort.
-    const why = ctrl.signal.aborted ? `Provider timed out after ${TIMEOUT_MS / 1000}s` : 'Provider unreachable';
-    throw new Error(sanitizeError(`${why}: ${e?.message || ''}`.slice(0, 240), apiKey));
+    // fetch rejects on network failure / abort. Outcome unknown.
+    const timedOut = ctrl.signal.aborted;
+    const why = timedOut ? `Provider timed out after ${TIMEOUT_MS / 1000}s` : 'Provider unreachable';
+    throw supplierError(sanitizeError(`${why}: ${e?.message || ''}`.slice(0, 240), apiKey),
+      'unknown', timedOut ? 'timeout' : 'network');
   } finally {
     clearTimeout(timer);
   }
@@ -44,9 +56,16 @@ async function fetchJSON(apiUrl, apiKey, form) {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error(`Provider returned non-JSON (${res.status}): ${text.slice(0, 200)}`);
+    throw supplierError(sanitizeError(`Provider returned non-JSON (${res.status}): ${text.slice(0, 200)}`, apiKey),
+      'unknown', res.status >= 500 ? 'http_5xx' : 'non_json');
   }
-  if (data.error) throw new Error(sanitizeError(String(data.error).slice(0, 240), apiKey));
+  if (data && data.error) {
+    const msg = sanitizeError(String(data.error).slice(0, 240), apiKey);
+    if (res.status >= 500) throw supplierError(msg, 'unknown', 'http_5xx');
+    const funds = /balance|funds|insufficient|credit/i.test(msg);
+    throw supplierError(msg, 'rejected', funds ? 'insufficient_supplier_funds' : 'provider_rejected');
+  }
+  if (res.status >= 500) throw supplierError(`Provider returned HTTP ${res.status}`, 'unknown', 'http_5xx');
   return data;
 }
 

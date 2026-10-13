@@ -715,7 +715,7 @@ await t('concurrent coupon redemption cannot over-redeem a usage-limited coupon 
     'only the standing order may be charged');
 });
 
-await t('provider failure ⇒ no debit, no order row, ProviderError surfaced', async () => {
+await t('provider refusal ⇒ reservation refunded exactly once, order REJECTED, ProviderError surfaced', async () => {
   const svc = firstDemoService();
   const user = createUser('failorder@test.dev', 500000);
   await assert.rejects(
@@ -723,9 +723,13 @@ await t('provider failure ⇒ no debit, no order row, ProviderError surfaced', a
     (e) => e instanceof ProviderError
   );
   const after = db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(user.id);
-  assert.strictEqual(after.wallet_balance, 500000, 'a rejected order must never debit the wallet');
-  assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM orders WHERE link LIKE '%fail-me%'").get().c, 0);
-  assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM transactions WHERE user_id=?").get(user.id).c, 0);
+  assert.strictEqual(after.wallet_balance, 500000, 'a refused order must end with the balance restored');
+  const row = db.prepare("SELECT status FROM orders WHERE link LIKE '%fail-me%'").get();
+  assert.strictEqual(row.status, 'REJECTED', 'the refused order is recorded as REJECTED, never as accepted');
+  const ledger = db.prepare("SELECT COALESCE(SUM(amount_inr),0) s, COUNT(*) n FROM transactions WHERE user_id=?").get(user.id);
+  assert.strictEqual(Number(ledger.s), 0, 'debit and refund net to zero in the ledger');
+  assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM transactions WHERE user_id=? AND type='refund'").get(user.id).c, 1,
+    'exactly one refund row');
 });
 
 await t('insufficient balance ⇒ clean 402-class error before any provider call, no debit', async () => {
@@ -1049,12 +1053,12 @@ await t('admin API rejects non-positive rates and min < 1 on service create and 
   assert.ok(stored.admin_rate > 0 && stored.min === 10, 'a rejected edit must not alter stored pricing');
 });
 
-await t('an upstream order whose release-cancel fails is audited (uncompensated_provider_order)', async () => {
-  // A dedicated adapter whose placeOrder succeeds but whose cancel
-  // always fails — proving the compensation path records the orphan
-  // instead of silently leaving an unpaid upstream order.
+await t('an unfunded order is refused BEFORE the supplier is called (no orphan can be created)', async () => {
+  // Reservation-first: the conditional debit runs before the supplier call, so a
+  // balance that is gone at write time never reaches the supplier at all.
+  let supplierCalls = 0;
   registerProviderAdapter('boom', () => ({
-    async placeOrder() { return { id: 'BOOM-UPSTREAM-1', status: 'PENDING' }; },
+    async placeOrder() { supplierCalls++; return { id: 'BOOM-UPSTREAM-1', status: 'PENDING' }; },
     async cancel() { throw new Error('supplier cancel endpoint unreachable'); },
   }));
   const now = Date.now();
@@ -1078,9 +1082,7 @@ await t('an upstream order whose release-cancel fails is audited (uncompensated_
     placeOrder({ user: snapshot, serviceId: svcId, link: 'https://instagram.com/boom', quantity: 10 }),
     (e) => e instanceof InsufficientBalanceError
   );
-  const audit = db.prepare("SELECT * FROM security_logs WHERE action='uncompensated_provider_order'").all();
-  assert.strictEqual(audit.length, 1, 'the orphaned upstream order must be recorded in the security audit log');
-  assert.ok(String(audit[0].detail).includes('BOOM-UPSTREAM-1'), 'the audit detail must carry the provider order id');
+  assert.strictEqual(supplierCalls, 0, 'the supplier must never be asked for an order the customer cannot pay');
   assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM orders WHERE user_id=?').get(user.id).c, 0);
   assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM transactions WHERE user_id=?').get(user.id).c, 0);
   assert.strictEqual(db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(user.id).wallet_balance, 0);

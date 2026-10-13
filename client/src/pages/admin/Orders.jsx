@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { get, post } from '../../api.js';
 import { useToast, fmtInr, StatusBadge, Empty } from '../../ui.jsx';
 
-const STATUSES = ['ALL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'PARTIAL', 'CANCELED', 'CANCELLED', 'FAILED', 'REFUNDED'];
+const STATUSES = ['ALL', 'AMBIGUOUS', 'SUBMITTING', 'REJECTED', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'PARTIAL', 'CANCELED', 'CANCELLED', 'FAILED', 'REFUNDED'];
 
 export default function AdminOrders() {
   const toast = useToast();

@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { placeOrder, quoteOrder, userOrders, orderWithService, InsufficientBalanceError, ProviderError } from '../lib/orderRouter.js';
+import {
+  placeOrder, quoteOrder, userOrders, orderWithService,
+  InsufficientBalanceError, ProviderError, DuplicateOrderError, OrderVerifyingError,
+} from '../lib/orderRouter.js';
 import { ah, sendErr } from './_helpers.js';
 
 // POST /api/quote — preview cost + coupon effect (server-side math only).
@@ -48,10 +51,27 @@ r.post('/', requireAuth, (req, res, next) => {
     if (e instanceof ProviderError) {
       // Task 8 (client privacy): the provider's own error text lives INSIDE the
       // admin audit trail ({last_error}) — it must never be echoed to a client
-      // (it can name the supplier). Clients get a generic, truthful outcome.
-      return sendErr(res, 502, 'The order could not be placed right now — nothing was charged. Please try again in a moment or contact support.', 'PROVIDER_ERROR');
+      // (it can name the supplier). The reservation has been refunded, so this is
+      // a truthful outcome.
+      return sendErr(res, 502, 'The supplier did not accept this order, so your balance was not charged. Please try again in a moment or contact support.', 'PROVIDER_ERROR');
     }
-    return sendErr(res, 400, e.message, e.code);
+    if (e instanceof OrderVerifyingError) {
+      // Supplier outcome unknown. Never claim it started, and never refund here.
+      // 202 = received, verification pending. The customer must not resubmit.
+      return res.status(202).json({
+        error: e.message,
+        code: 'VERIFYING',
+        order_ref: e.orderRef,
+        status: 'AMBIGUOUS',
+      });
+    }
+    if (e instanceof DuplicateOrderError) {
+      return sendErr(res, 409, e.message, 'DUPLICATE_ORDER');
+    }
+    if (e.code) return sendErr(res, 400, e.message, e.code);
+    // Unknown failure: never echo an internal error message to the client.
+    console.error('[instasmm] order placement failed:', e && e.message);
+    return sendErr(res, 500, 'Something went wrong while placing this order. Check your order history before trying again.', 'ORDER_FAILED');
   }
 }));
 

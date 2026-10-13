@@ -1,30 +1,66 @@
-import { getDb, newId } from '../db.js';
+import { getDb } from '../db.js';
 import { validateCommentOrder } from './commentOrder.js';
 import { computePricing } from './money.js';
 import { createAdapter } from './provider.js';
 import { notify } from './notifier.js';
 import { expireStaleDeposits } from './apirone.js';
 import { logSecurity } from '../middleware/auth.js';
+import {
+  InsufficientBalanceError, ProviderError, DuplicateOrderError, OrderVerifyingError, LifecycleError,
+  reserveOrder, settleAccepted, settleRejected, markAmbiguous, reconcileOrder, sweepStaleSubmitting,
+  classifyProviderFailure, alertAdmin,
+} from './orderLifecycle.js';
 
-export class InsufficientBalanceError extends Error {
-  constructor(message = 'Insufficient balance') { super(message); this.code = 'INSUFFICIENT_BALANCE'; }
-}
-export class ProviderError extends Error {
-  constructor(message = 'Provider error') { super(message); this.code = 'PROVIDER_ERROR'; }
-}
+// The error classes live in orderLifecycle.js; they are re-exported so existing
+// importers (routes, tests) keep working unchanged.
+export { InsufficientBalanceError, ProviderError, DuplicateOrderError, OrderVerifyingError, LifecycleError, reconcileOrder };
+
+// Supplier statuses that may follow an ACCEPTED order. Anything else is treated
+// as PENDING so a strange supplier value can never be stored as a final state.
+const ACCEPTED_STATUSES = new Set(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'PARTIAL', 'CANCELED', 'FAILED', 'REFUNDED']);
 
 // ---------------------------------------------------------------------------
-// ORDER PLACEMENT PIPELINE  (provider-first)
+// ORDER PLACEMENT PIPELINE  (reserve → submit → settle)
 //
 //  1. Pricing + balance check (all server-side, no-loss guaranteed).
-//  2. ROUTE TO PROVIDER FIRST. If upstream rejects or is unreachable we throw
-//     ProviderError BEFORE touching the wallet — no debit, no order row, and
-//     the real error is surfaced to the UI. We never fabricate a success.
-//  3. Only after the provider returns a provider order id do we start a
-//     transaction: debit the wallet, insert the order (link holds
-//     provider_order_id), record the ledger — atomically, exactly once.
-//     A duplicate provider order id is refused by the unique index.
+//  2. RESERVE. One transaction: conditional debit, order row (SUBMITTING), ledger
+//     row and coupon use. Two concurrent submissions can never both pass the same
+//     balance, so the supplier is never asked for more than the customer can pay.
+//  3. SUBMIT. The supplier is called once. No retry.
+//  4. SETTLE.
+//       accepted (supplier returned an id)  → PENDING/IN_PROGRESS, recorded once.
+//       definitively refused                → REJECTED, reservation refunded once,
+//                                             coupon released.
+//       anything else (timeout, 5xx, bad or
+//       missing reply, record failure)      → AMBIGUOUS, held for admin
+//                                             reconciliation. Never refunded or
+//                                             retried automatically.
 // ---------------------------------------------------------------------------
+function setProviderError(db, provider, category) {
+  // Admin-visible, sanitized: a fixed category, never supplier text.
+  db.prepare('UPDATE providers SET last_error=?, last_success_at=NULL, updated_at=? WHERE id=?')
+    .run(`Order ${category}`.slice(0, 300), Date.now(), provider.id);
+}
+
+// The supplier definitively refused (or the adapter could not be built, so the
+// supplier was never contacted). Refunds the reservation exactly once. Throws.
+function failRejected(db, provider, orderId, orderRef, category) {
+  settleRejected({ db, orderId, reason: category, now: Date.now() });
+  setProviderError(db, provider, category);
+  alertAdmin(category === 'insufficient_supplier_funds' ? 'supplier_insufficient_funds' : 'supplier_order_rejected',
+    { providerId: provider.id, providerName: provider.name, orderRef, category });
+  throw new ProviderError();
+}
+
+// The outcome is unknown. Holds the reservation for reconciliation. Throws.
+function failAmbiguous(db, provider, orderId, orderRef, category) {
+  markAmbiguous(db, orderId, Date.now());
+  setProviderError(db, provider, category);
+  alertAdmin('supplier_order_ambiguous',
+    { providerId: provider.id, providerName: provider.name, orderRef, category });
+  throw new OrderVerifyingError(orderRef);
+}
+
 // eslint-disable-next-line max-params
 export async function placeOrder({ user, serviceId, link, quantity, couponCode = null, extras = {} }) {
   const db = getDb();
@@ -84,136 +120,69 @@ export async function placeOrder({ user, serviceId, link, quantity, couponCode =
   }
   if (user.wallet_balance < final) throw new InsufficientBalanceError();
 
-  // STEP 2 — provider first. No wallet/DB write happens on failure.
-  const adapter = createAdapter(provider.adapter, provider);
+  // STEP 2 — reserve. Debit, order row, ledger and coupon commit together, BEFORE
+  // the supplier is called. Throws InsufficientBalanceError / DuplicateOrderError /
+  // BAD_COUPON with nothing written.
+  const linkValue = String(link).trim();
+  const reserved = reserveOrder({ db, user, service, provider, quantity, link: linkValue, pricing, coupon, now: Date.now() });
+  const { orderId, orderRef, newBalance } = reserved;
+  user.wallet_balance = newBalance;
+
+  // STEP 3 — submit. The supplier is called exactly once; there is no retry.
+  let adapter;
+  try {
+    adapter = createAdapter(provider.adapter, provider);
+  } catch {
+    // The supplier was never contacted, so this refusal is definitive.
+    failRejected(db, provider, orderId, orderRef, 'factory_error');
+  }
+
   let routed;
   try {
     routed = await adapter.placeOrder({
       service: service.provider_service_id || String(service.id),
-      link: String(link).trim(),
+      link: linkValue,
       quantity,
       extras,
     });
   } catch (e) {
-    const msg = `Provider rejected the order: ${e.message}`;
-    console.warn('[instasmm] order rejected by provider  ✓ no debit', `#${user.email}`);
-    db.prepare('UPDATE providers SET last_error=?, last_success_at=NULL, updated_at=? WHERE id=?')
-      .run(msg.slice(0, 300), Date.now(), provider.id);
-    const err = new ProviderError(msg); err.cause = e; throw err;
+    const { kind, category } = classifyProviderFailure(e);
+    if (kind === 'rejected') failRejected(db, provider, orderId, orderRef, category);
+    failAmbiguous(db, provider, orderId, orderRef, category);
   }
 
-  const providerOrderId = routed?.id || null;
-  if (!providerOrderId) {
-    const err = new ProviderError('Provider did not return an order id — nothing ordered, nothing charged.');
-    throw err;
-  }
-  const initialStatus = String(routed?.status || 'PENDING').toUpperCase();
+  // STEP 4 — settle. Acceptance is recorded only from a supplier reply that carries
+  // an order id. A reply without one may still mean the order was created.
+  const providerOrderId = routed && routed.id ? String(routed.id) : '';
+  if (!providerOrderId) failAmbiguous(db, provider, orderId, orderRef, 'no_reference');
 
-  // Mark provider connectivity healthy.
+  const initialStatus = (() => {
+    const s = normalizeStatus(routed.status || 'PENDING');
+    return ACCEPTED_STATUSES.has(s) ? s : 'PENDING';
+  })();
+
+  let settled;
+  try {
+    settled = settleAccepted({
+      db, orderId, providerOrderId, initialStatus,
+      charge: routed.charge == null ? NaN : Number(routed.charge),
+      currency: routed.currency || provider.currency || null,
+      now: Date.now(),
+    });
+  } catch {
+    failAmbiguous(db, provider, orderId, orderRef, 'record_failed');
+  }
+  if (!settled.ok) failAmbiguous(db, provider, orderId, orderRef, settled.category);
+
   db.prepare('UPDATE providers SET last_success_at=?, last_error=NULL, updated_at=? WHERE id=?')
     .run(Date.now(), Date.now(), provider.id);
 
-  const now = Date.now();
-  const orderRef = newId('ORD-');
-  let orderId;
-  let newBalance = user.wallet_balance - final;
-
-  db.exec('BEGIN');
-  try {
-    // ATOMIC, CONDITIONAL DEBIT. The WHERE clause evaluates the
-    // balance against the LIVE row value inside the write itself, so
-    // two concurrent orders can never both pass on the same snapshot
-    // (no double-spend, no negative balance) and a stale session
-    // balance can never be written back over a newer debit.
-    const debit = db.prepare(
-      `UPDATE users
-       SET wallet_balance = wallet_balance - ?, total_spent_inr = total_spent_inr + ?
-       WHERE id = ? AND wallet_balance >= ?`
-    ).run(final, final, user.id, final);
-    if (debit.changes !== 1) {
-      // Rolls back below and releases the upstream order (catch).
-      throw new InsufficientBalanceError();
-    }
-    newBalance = db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(user.id).wallet_balance;
-    db.prepare(
-      `INSERT INTO transactions (user_id, type, amount_inr, balance_after, ref_id, meta_json, created_at)
-       VALUES (?, 'order', ?, ?, NULL, ?, ?)`
-    ).run(user.id, -final, newBalance, JSON.stringify({ service: service.name }), now);
-
-    const ins = db.prepare(
-      `INSERT INTO orders
-         (order_ref, user_id, service_id, provider_id, provider_order_id, link, quantity,
-          price_inr, base_cost_inr, coupon_id, discount_inr, status,
-          start_count, remains, provider_charge, provider_currency, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)`
-    );
-    const res = ins.run(
-      orderRef, user.id, service.id, provider.id, providerOrderId, String(link).trim(), quantity,
-      pricing.price, pricing.base, coupon?.id ?? null, pricing.discount,
-      initialStatus, quantity,
-      Number.isFinite(routed.charge) ? routed.charge : null,
-      routed.currency || provider.currency || null,
-      now, now
-    );
-    orderId = Number(res.lastInsertRowid);
-
-    if (coupon) {
-      // ATOMIC COUPON CONSUMPTION. The usage limit is enforced by the
-      // UPDATE itself, so concurrent orders can never over-redeem a
-      // limited coupon. Failure rolls the whole order back — the
-      // wallet debit above is undone.
-      const consumed = db.prepare(
-        `UPDATE coupons SET used_count = used_count + 1
-         WHERE id = ? AND (usage_limit IS NULL OR used_count < usage_limit)`
-      ).run(coupon.id);
-      if (consumed.changes !== 1) {
-        const e = new Error('Coupon usage limit reached.'); e.code = 'BAD_COUPON'; throw e;
-      }
-      db.prepare('INSERT INTO coupon_uses (coupon_id, user_id, order_id, discount_inr, created_at) VALUES (?,?,?,?,?)')
-        .run(coupon.id, user.id, orderId, pricing.discount, now);
-    }
-    db.exec('COMMIT');
-  } catch (e) {
-    try { db.exec('ROLLBACK'); } catch { /* no active transaction — already rolled back */ }
-    // Duplicate provider order id → the same upstream order was already
-    // placed AND recorded: refuse WITHOUT cancelling (the stored row is
-    // the live upstream order).
-    if (/idx_orders_prov_order|UNIQUE/.test(String(e.message))) {
-      const err = new ProviderError('This upstream order id was already accepted — duplicate order refused.');
-      throw err;
-    }
-    // The provider accepted the order but we could not debit the wallet
-    // or record it — release the upstream order so it is never delivered
-    // unpaid. The release is retried once; if the supplier still cannot
-    // cancel, the orphaned upstream order is recorded in the security
-    // audit log (the ONLY trace of an order that exists upstream but not
-    // in our database) for immediate manual review. A cancel failure
-    // must not mask the real error.
-    let released = false;
-    for (let attempt = 0; attempt < 2 && !released; attempt++) {
-      try { await adapter.cancel(providerOrderId); released = true; } catch { /* retry once */ }
-    }
-    if (!released) {
-      logSecurity(null, 'system', 'uncompensated_provider_order', 'system',
-        JSON.stringify({
-          provider_id: provider.id, provider_order_id: providerOrderId,
-          user_id: user.id, service: service.name, quantity,
-          price_inr: final, reason: String(e.message || e).slice(0, 200),
-        }));
-      console.error('[instasmm] UNCOMPENSATED upstream order — manual review required:',
-        `provider_order_id=${providerOrderId} user_id=${user.id} price_inr=${final}`);
-    }
-    throw e;
-  }
-
   try {
     notify(user.id, 'order', 'Order Created',
-      `#${orderRef} — ${service.name} × ${quantity}. Accepted by provider, ${initialStatus.replace('_', ' ')}.`);
+      `#${orderRef} — ${service.name} × ${quantity}. Accepted by supplier, ${initialStatus.replace('_', ' ')}.`);
   } catch { /* never block on a notification */ }
 
-  user.wallet_balance = newBalance;
-  const placed = orderWithService(db, orderId);
-  return placed;
+  return orderWithService(db, orderId);
 }
 
 function findValidCoupon(code) {
@@ -275,6 +244,9 @@ export function startOrderTicker() {
 
 export async function syncOrderStatuses() {
   const db = getDb();
+  // Reservations left in SUBMITTING by a stopped process become AMBIGUOUS (held,
+  // never refunded automatically). Done before the sync so they are not synced.
+  try { sweepStaleSubmitting({ db }); } catch (e) { console.error('[instasmm] stale-order sweep error:', e.message); }
   // No JOIN to services: the provider order id lives on the order row, so
   // an order whose service was later deleted (detached) must STILL be
   // synced — otherwise it would be stuck PENDING/IN_PROGRESS forever.
