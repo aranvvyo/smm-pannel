@@ -91,3 +91,16 @@ Owner decisions still open:
 - Supplier refill and cancel responses are based on the existing SMM-style adapter contract. The supplier's own API documentation was not available in this repository and was not verified.
 
 Razorpay: unchanged. No checkout, no live mode, no INR auto-credit.
+
+## 11. Customer Cancel: decision needed (not built)
+
+Not implemented, on purpose. The published Terms (§4, "Other refunds (for example, cancelled or partly delivered orders) are decided by the operator") and the refund draft (customers ask support; the admin decides) both say cancellation is an operator decision. A customer Cancel button that refunds automatically would contradict both. Neither has been changed.
+
+Decision needed from you, one of:
+- A. Keep the policy. No customer cancel button. (Current state.)
+- B. Change the policy: a customer may cancel a PENDING or IN_PROGRESS order whose service supports cancel. The refund is the supplier-confirmed unused share, and it is issued only after the supplier confirms. Then the Terms §4 and refund draft must be updated before any button goes live. Say B and the wording will be drafted for approval.
+
+## 12. Other items from this pass
+
+- Refill schema on PostgreSQL: the `coupons` table is now created before `orders`. A fresh PostgreSQL database previously failed at startup because `orders` references `coupons`. Existing databases already have both tables, so the change has no effect on them.
+- Supplier API documentation: none is stored in this repository. The refill and cancel contract is taken from the adapter code only and is not verified against the supplier's documentation.

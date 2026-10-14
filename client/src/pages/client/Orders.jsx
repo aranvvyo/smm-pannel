@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { get, post } from '../../api.js';
 import { usePoll, fmtInr, timeAgo, StatusBadge, Empty } from '../../ui.jsx';
+import { cleanDisplayText } from '../../lib/serviceFormat.js';
 
 // Customer refill state, from server-provided flags only. The button is shown only
 // when the service supports refill AND the order is eligible; otherwise a reason is shown.
@@ -116,7 +117,7 @@ export default function Orders() {
                 {visible.map((o) => (
                   <tr key={o.id} id={`o${o.id}`}>
                     <td className="mono" style={{ color: 'var(--info)' }}>{o.order_ref}</td>
-                    <td>{o.service_name}<div className="faint" style={{ fontSize: '0.8rem' }}>{o.category_name}</div></td>
+                    <td>{cleanDisplayText(o.service_name)}<div className="faint" style={{ fontSize: '0.8rem' }}>{cleanDisplayText(o.category_name)}</div></td>
                     <td>{Number(o.quantity).toLocaleString()}</td>
                     <td>
                       {['IN_PROGRESS', 'PARTIAL', 'COMPLETED'].includes(o.status)

@@ -4,7 +4,7 @@ import { get, post } from '../../api.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useToast, fmtInr, StatusBadge, Icon, Empty } from '../../ui.jsx';
 import { createQuoteFlow } from '../../lib/quoteFlow.js';
-import { fmtRatePer1k, flagLabel, platformIcon, serviceIdLabel, serviceOptionLabel, usableCategories } from '../../lib/serviceFormat.js';
+import { cleanDisplayText, fmtRatePer1k, flagLabel, platformIcon, serviceIdLabel, serviceOptionLabel, usableCategories } from '../../lib/serviceFormat.js';
 import { filterServices } from '../../lib/serviceSearch.js';
 import { commentLines, commentProblem } from '../../lib/commentLines.js';
 
@@ -301,7 +301,7 @@ export default function OrderPage() {
             <select id="cat-select" className="select-shell-input" value={catId} onChange={(e) => changeCategory(e.target.value)}>
               <option value="">All categories · {allServices.length.toLocaleString()} services</option>
               {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name} · {c.services.length.toLocaleString()} services</option>
+                <option key={c.id} value={c.id}>{cleanDisplayText(c.name)} · {c.services.length.toLocaleString()} services</option>
               ))}
             </select>
             <span className="select-shell-caret" aria-hidden="true">
@@ -344,7 +344,7 @@ export default function OrderPage() {
             <div className="svc-detail">
               <div className="svc-detail-head">
                 <span className="svc-id-badge">ID {serviceIdLabel(svc)}</span>
-                <span className="svc-detail-name">{svc.name}</span>
+                <span className="svc-detail-name">{cleanDisplayText(svc.name)}</span>
               </div>
               {svc.category_name && <div className="svc-detail-cat muted">{svc.category_name}</div>}
               {svc.description && <p className="svc-detail-desc muted">{svc.description}</p>}
