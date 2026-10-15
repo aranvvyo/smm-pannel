@@ -23,6 +23,9 @@
   --shadow: 0 6px 18px -12px rgba(0, 0, 0, 0.7);
   --glow: 0 0 0 1px rgba(16, 185, 129, 0.12);
   --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* The app is dark-only. Telling the browser so makes native controls and the
+     open <select> list use the dark scheme instead of the browser's light list. */
+  color-scheme: dark;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -45,6 +48,41 @@ button, input, select, textarea, option { font-family: inherit; font-size: 1rem;
 /* Service and category option text uses the same sans-serif stack as the
    rest of the app; some mobile browsers otherwise pick a serif face here. */
 select, option { font-family: var(--font); }
+
+/* ---------- Native <select> / <option> (category and service dropdowns) ----------
+   Bug: options inherited the app's light text colour (--text) while the browser
+   painted the open list with its own light background, so the names were nearly
+   invisible. Options now get explicit dark-theme colours, the selected option gets
+   the green accent, and disabled text uses the muted token. Long names stay on
+   one line in the closed control and are truncated with an ellipsis; the open
+   list shows full text (the OS picker on phones). */
+select {
+  color-scheme: dark;
+  color: var(--text);
+  -webkit-text-fill-color: var(--text);
+  background-color: var(--bg-elev);
+  text-overflow: ellipsis;
+}
+select option,
+select optgroup {
+  background-color: var(--surface);
+  color: var(--text);
+  -webkit-text-fill-color: var(--text);
+}
+select option:checked {
+  background-color: rgba(16, 185, 129, 0.28);
+  color: var(--text);
+}
+select option:disabled {
+  color: var(--faint);
+  -webkit-text-fill-color: var(--faint);
+}
+select:disabled {
+  color: var(--faint);
+  -webkit-text-fill-color: var(--faint);
+  opacity: 0.7;
+  cursor: not-allowed;
+}
 
 /* ---------- Layout ---------- */
 .container { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
