@@ -26,12 +26,12 @@ const PLATFORMS = [
 ];
 
 const BENEFITS = [
-  { icon: 'zap', title: 'Instant Delivery', body: 'Automated orders run 24/7 through multiple provider APIs with zero manual work.' },
-  { icon: 'wallet', title: 'Secure Wallet', body: 'Pay with Litecoin or USDT (BEP20 / ERC20). Deposits are credited safely and tracked in a transparent ledger.' },
-  { icon: 'trendUp', title: 'Best Prices', body: 'Direct provider rates with transparent per-1000 pricing and smart coupon discounts.' },
-  { icon: 'shield', title: 'No-Loss Guarantee', body: 'Coupons are engineered so every sale still protects our provider costs.' },
-  { icon: 'chart', title: 'Live Tracking', body: 'Watch your order start count, remains and status update in real time.' },
-  { icon: 'support', title: 'Super Support', body: 'Built-in ticket system — attach your order ID and talk directly with the team.' },
+  { icon: 'zap', title: 'Automated Ordering', body: 'Your order is passed automatically to a third-party supplier. Delivery times are estimates and depend on the service.' },
+  { icon: 'wallet', title: 'Wallet Ledger', body: 'Deposit with Litecoin or USDT (BEP20 / ERC20). Every balance change is recorded in your transaction history.' },
+  { icon: 'trendUp', title: 'Transparent Pricing', body: 'Per-1000 pricing and the final amount are shown before you confirm. Coupons follow their stated conditions.' },
+  { icon: 'shield', title: 'Upfront Totals', body: 'The server calculates the total you pay, using the same rules as the quote you see before confirming.' },
+  { icon: 'chart', title: 'Order Status', body: 'See the start count, remaining quantity and status as the supplier reports them.' },
+  { icon: 'support', title: 'Support Tickets', body: 'Open a ticket from your account with your order reference. Reply times are not guaranteed.' },
 ];
 
 const STEPS = [
@@ -55,11 +55,11 @@ const SECURITY = [
 ];
 
 const FAQS = [
-  { q: 'What is InstaSMM?', a: 'A fully automated SMM panel. You buy followers, likes and views for your profiles, and our system delivers them automatically through multiple provider APIs.' },
-  { q: 'How long does delivery take?', a: 'Most orders start within seconds and complete within minutes to hours depending on the service and provider. You can track progress live on the My Orders page.' },
+  { q: 'What is InstaSMM?', a: 'An SMM panel. You order followers, likes or views for profiles you own or are authorised to promote. Orders are passed automatically to third-party supplier APIs that carry out the delivery.' },
+  { q: 'How long does delivery take?', a: 'Delivery times are estimates and depend on the service and the supplier. You can follow each order on the Orders page. Delivery is not guaranteed.' },
   { q: 'Which payments do you accept?', a: 'We accept Litecoin (LTC) and USDT on BEP20 and ERC20. Deposits are made in USD and credited to your wallet in INR.' },
-  { q: 'Do you offer refunds?', a: 'Canceled orders return the full amount to your wallet. Orders already delivered cannot be refunded, though we offer refills for incomplete deliveries where available.' },
-  { q: 'Is my data safe?', a: 'Yes. Passwords are hashed with scrypt, sessions are encrypted HttpOnly cookies, and API keys are never exposed to the frontend.' },
+  { q: 'Do you offer refunds?', a: 'An order the supplier refuses is returned to your wallet. A cancelled order returns the undelivered portion where the service allows cancellation. Refunds go to your wallet, not to your original payment method. See the Refund policy for details.' },
+  { q: 'Is my data safe?', a: 'Passwords are stored as scrypt hashes and sessions use HttpOnly cookies. No system is completely secure. See the Privacy policy for what we collect and share.' },
   { q: 'Can I cancel an order?', a: 'Cancel is available for PENDING or IN_PROGRESS orders. The amount not yet delivered is credited back to your wallet.' },
 ];
 
@@ -145,8 +145,8 @@ export default function Landing() {
               <span className="grad-text">Pay with crypto.</span>
             </h1>
             <p>
-              InstaSMM is a fully automated SMM panel — order followers, likes and views
-              in seconds, pay with Litecoin or USDT, and watch delivery happen in real time.
+              InstaSMM is an SMM panel. Order followers, likes or views, pay with Litecoin or USDT,
+              and follow each order status as the supplier reports it.
             </p>
             <div className="hero-cta">
               <Link to={cta} className="btn btn-primary btn-lg">Start Boosting <Icon name="rocket" size={17} stroke={1.9} /></Link>

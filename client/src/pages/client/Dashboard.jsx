@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import { get } from '../../api.js';
 import { useState } from 'react';
 import { fmtInr, fmtUsd, usePoll, timeAgo, StatusBadge, Empty, Icon } from '../../ui.jsx';
+import { cleanDisplayText } from '../../lib/serviceFormat.js';
 
 // A hierarchy of wallets/cards: lifetime spend feeds the "total spent" card,
 // today's real ledger aggregate feeds the "Today's spend" card.
@@ -86,7 +87,7 @@ export default function ClientDashboard() {
                 {recent.map((o) => (
                   <tr key={o.id}>
                     <td><Link to={`/orders#o${o.id}`} className="mono faint" style={{ color: 'var(--info)' }}>{o.order_ref}</Link></td>
-                    <td>{o.service_name}<div className="faint" style={{ fontSize: '0.8rem' }}>{o.category_name}</div></td>
+                    <td>{cleanDisplayText(o.service_name)}<div className="faint" style={{ fontSize: '0.8rem' }}>{cleanDisplayText(o.category_name)}</div></td>
                     <td><StatusBadge status={o.status} /></td>
                     <td>{fmtInr(o.price_inr)}</td>
                     <td className="faint">{timeAgo(o.created_at)}</td>

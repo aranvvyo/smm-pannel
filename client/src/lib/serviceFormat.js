@@ -1,5 +1,20 @@
 // Pure display helpers for the service catalog. No React, no network.
 
+// Display-only cleanup for supplier-provided names: Unicode-normalises, removes
+// control characters, drops zero-width characters, turns non-breaking spaces into spaces, and
+// collapses runs of whitespace. Never changes letters, digits or punctuation, and
+// is never written back to the database. ZWJ/ZWNJ are kept so emoji still render.
+export function cleanDisplayText(v) {
+  return String(v ?? '')
+    .normalize('NFC')
+    .replace(/[\u200B\u2060\uFEFF]/g, '')
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+    .replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+
 // Price per 1000 units, in rupees. A positive rate is never shown as ₹0:
 // sub-paisa rates are printed with their real value instead of being rounded.
 export function fmtRatePer1k(rupees) {
@@ -74,7 +89,7 @@ export function serviceIdLabel(service) {
 // so every option stays a single readable line on a phone. Rate, min and max
 // are shown in the detail panel below the select.
 export function serviceOptionLabel(service, maxName = 60) {
-  const name = String(service.name || '').replace(/\s+/g, ' ').trim();
+  const name = cleanDisplayText(service.name);
   const short = name.length > maxName ? name.slice(0, maxName - 1).trimEnd() + '…' : name;
   return `${serviceIdLabel(service)} · ${short}`;
 }

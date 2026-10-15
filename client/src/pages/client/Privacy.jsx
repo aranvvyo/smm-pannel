@@ -12,19 +12,19 @@ export default function PrivacyPage() {
           Your information is used solely to operate the platform, process orders, manage your wallet, and communicate with you regarding your account and orders.</p>
 
         <p><b style={{ color: 'var(--text)' }}>3. Data Storage</b><br />
-          All data is stored in encrypted databases on secure servers. We implement industry-standard security measures to protect your information.</p>
+          Passwords are stored as scrypt hashes. Other account and order data is stored in our hosted database.</p>
 
         <p><b style={{ color: 'var(--text)' }}>4. Third-Party Sharing</b><br />
-          We do not sell or share your personal information with third parties, except as necessary to fulfill orders through our service providers.</p>
+          We do not sell your personal information. We share information only with the service providers needed to run the site: a cryptocurrency payment processor (Apirone) for deposits, the supplier services that deliver your orders (the profile link, service and quantity you submit), and our hosting provider.</p>
 
         <p><b style={{ color: 'var(--text)' }}>5. Cookies</b><br />
-          We use HttpOnly session cookies to maintain your login session. These cookies do not store personal information and expire after approximately 30 days.</p>
+          We use HttpOnly, Secure session cookies to keep you signed in. The cookie holds a random token; the server stores only a hash of it. Sessions last up to about 30 days. The server's security log records IP addresses for sign-ins and account actions.</p>
 
         <p><b style={{ color: 'var(--text)' }}>6. Data Retention</b><br />
-          We retain your account data as long as your account is active. You may request account deletion by contacting support.</p>
+          We keep account data while the account exists. There is no self-service account deletion yet; deletion requests are handled manually by the operator.</p>
 
         <p><b style={{ color: 'var(--text)' }}>7. Security</b><br />
-          We employ encryption, secure password hashing (scrypt), and regular security audits to protect your data. However, no method of transmission over the Internet is 100% secure.</p>
+          Passwords are hashed with scrypt, session cookies are HttpOnly, and admin functions require an admin account. No method of transmission over the Internet is completely secure.</p>
 
         <p><b style={{ color: 'var(--text)' }}>8. Contact</b><br />
           For privacy-related inquiries, please open a support ticket through the platform.</p>

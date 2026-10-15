@@ -1,0 +1,106 @@
+# Owner checklist and publication status
+
+## 1. Changes on the review branch
+
+Done (on `compliance/razorpay-review-draft` only, not deployed):
+- Landing copy: overclaims removed (see section 8).
+- Terms §4 (`client/src/pages/client/Terms.jsx`): the "non-refundable except at admin discretion" statement is replaced with what the code does (wallet-only refunds; supplier refusals refunded once; other refunds decided by the operator; no wallet withdrawal).
+- Privacy (`client/src/pages/client/Privacy.jsx`): removed "encrypted databases", "regular security audits", "do not store personal information" (cookies), and "no sharing" wording; named the processor, supplier and hosting categories; IP logging disclosed; account deletion described as manual.
+
+Still open, needing your decision:
+- Footer links to About, Contact, Terms, Privacy, Refund, Payment & Delivery. Not added: the About/Contact/Refund/Payment pages do not exist yet, and their drafts contain REQUIRED fields.
+- Publishing the drafts in `drafts/` (owner approval and the REQUIRED fields first).
+
+## 2. Draft content awaiting owner approval
+- `drafts/REFUND_CANCELLATION.md`
+- `drafts/PRIVACY_POLICY.md`
+- `drafts/TERMS_AND_CONDITIONS.md`
+- `drafts/ABOUT_CONTACT_PAYMENT.md`
+
+## 3. Missing facts preventing publication
+- **Physical business address — REQUIRED, OWNER MUST PROVIDE.** Not supplied. Not invented.
+- Support email: supplied as arnavsingh98001@gmail.com, not verified. Earlier drafts and the review workspace used a different address. Please confirm which address is the support address; this review does not substitute one for the other.
+- Support phone 7457945493: supplied, not verified.
+- Support hours, response time, escalation contact, and any grievance officer.
+- Business history statement (About Us) — only if you can state it accurately.
+- Which payment methods are live for customers.
+- Cookie lifetime, retention periods, legal bases, and DPDP Act wording (confirm with a lawyer).
+- Refund timeframes and the crypto overpayment/duplicate-payment process.
+- GST status and the tax treatment of wallet deposits and orders (not confirmed; do not state either way).
+- Proprietor name and billing label confirmation with Razorpay.
+- Whether `instasmm.store` is served by this repository's Render service. Not verified from here.
+
+## 4. Services requiring Razorpay confirmation
+- Purchased social-media engagement (followers, likes, views, subscribers) — eligibility not confirmed. Razorpay Terms §14.7(vi) and §14.10 bind payments to the approved description.
+- Subcategory "Ad and Marketing" — confirm it matches the actual service.
+- Every active catalogue item must be reviewed individually before any Razorpay application.
+
+## 5. Technical defects preventing payment readiness
+- No Razorpay integration exists. Razorpay checkout would be new development requiring its own review.
+- Session cookie `secure: false` (auth middleware). Owner decision required; the live site uses HTTPS.
+- No account self-deletion; no retention purge job.
+- Provider API keys stored in the database without encryption at rest.
+- Crypto deposit handling verified in code (partial credit, overpayment cap, idempotent credit). Live behaviour with real funds is not tested and must not be tested without owner approval.
+- No customer-facing refund to original payment method exists.
+
+## 6. Go / no-go
+**Do not submit this website to Razorpay for merchant review yet.** The blockers are sections 3 and 4 above. Publication of the drafts also needs owner approval.
+
+## 7. Git and deployment status
+- Review work is on branch `compliance/razorpay-review-draft`. It does not deploy: Render auto-deploys only `main`.
+- Nothing on `main` was changed in this review.
+
+## 8. Status update (second pass)
+
+- Done on the review branch: session cookie Secure default (code, tested), landing copy corrections, refund and privacy draft corrections, payment-route map (`PAYMENT_ROUTES.md`), Razorpay support inquiry draft (`RAZORPAY_SUPPORT_INQUIRY.md`, not sent).
+- Still needed from you: physical address, verified support email and phone, support hours and response time, grievance details if required, live payment-method list, refund process for overpayments, rate-update description, cookie-security deployment confirmation, and a decision on whether to keep the "Deposit in INR" entry points visible while INR creation is paused.
+- Still needed from Razorpay: written eligibility for purchased engagement, subcategory confirmation, and whether the individual-proprietor billing label is acceptable.
+
+## 9. Final package for review (third pass)
+
+Ready for your review, in this order:
+1. `RAZORPAY_SUPPORT_INQUIRY.md`. Discloses purchased engagement delivered through supplier APIs and asks Razorpay for written eligibility and merchant category. Fill the square-bracket items, then send by the steps in that file. Not sent.
+2. `PAYMENT_ROUTES.md`. Note the admin manual INR verify route: it can credit the INR wallet and is not gated by the pause or the auto-credit flag. Decide whether to keep, gate or remove it. Not changed on this branch.
+3. `SERVICE_ELIGIBILITY.md`. The decision on whether to keep selling purchased engagement at all is still yours.
+
+Owner inputs still needed before any draft can be published:
+- Business address (REQUIRED, not supplied).
+- Support email: `arnavsingh98001@gmail.com` was supplied for this review. It differs from the address used in earlier drafts. Confirm which is the support address; the inquiry does not substitute one for the other.
+- Support phone `7457945493`: supplied, not verified.
+- Support hours, response time, grievance details, refund timeframes, rate-update description, GST status.
+- Whether `instasmm.store` is served by this repository's Render service (not verified from here).
+
+Not done, and deliberately so: no Razorpay checkout, no INR auto-credit, no change to secrets, environment variables, database contents or Render settings, no merge to `main`, no deploy.
+
+## 10. Refill, cancel and money-path changes (this pass)
+
+Changed on the review branch, not deployed:
+- Customer Refill button on the Orders page, shown only when the service supports refill (`services.refill` as synced from the supplier) and the order is COMPLETED or PARTIAL. Otherwise a reason is shown.
+- Server-side refill: ownership, service flag, order status, supplier reference, and one customer refill per order. Duplicates and concurrent requests are blocked. Stored in `order_refill_requests`. The supplier refill id is never shown to customers.
+- Admin refill no longer overwrites the order status or remains. A refill is treated as a separate supplier order and needs a supplier-returned id.
+- Admin cancel refunds only after the supplier's own status reports CANCELED. The refund uses the supplier-confirmed unused quantity: price × unused ÷ quantity, integer paise, half-up. If the status cannot be confirmed, nothing is refunded and the attempt is logged (`cancel_unconfirmed`).
+
+Owner decisions still open:
+- Customer self-service cancel is NOT built. The published refund draft and Terms say customers ask support and the operator decides. Building a customer cancel button changes that policy and needs your approval.
+- Refill eligibility rule (COMPLETED or PARTIAL only) is an assumption. Confirm it against the supplier's documentation and your policy.
+- Refill window: not implemented. The supplier defines it. Not verified.
+- Refill: one customer refill per order is a deliberate limit. Confirm.
+- A refill left AMBIGUOUS (timeout or no id) blocks further refills on that order. There is no admin screen to clear it yet; clear it in the database only after checking the supplier.
+- Supplier cancel where the order was cancelled at the supplier but the cancel status check failed: nothing is refunded automatically. Review `security_logs` (`cancel_unconfirmed`) and refund manually if the supplier confirms.
+- Refill progress is not tracked after the supplier accepts the request. The order status does not change.
+- Supplier refill and cancel responses are based on the existing SMM-style adapter contract. The supplier's own API documentation was not available in this repository and was not verified.
+
+Razorpay: unchanged. No checkout, no live mode, no INR auto-credit.
+
+## 11. Customer Cancel: decision needed (not built)
+
+Not implemented, on purpose. The published Terms (§4, "Other refunds (for example, cancelled or partly delivered orders) are decided by the operator") and the refund draft (customers ask support; the admin decides) both say cancellation is an operator decision. A customer Cancel button that refunds automatically would contradict both. Neither has been changed.
+
+Decision needed from you, one of:
+- A. Keep the policy. No customer cancel button. (Current state.)
+- B. Change the policy: a customer may cancel a PENDING or IN_PROGRESS order whose service supports cancel. The refund is the supplier-confirmed unused share, and it is issued only after the supplier confirms. Then the Terms §4 and refund draft must be updated before any button goes live. Say B and the wording will be drafted for approval.
+
+## 12. Other items from this pass
+
+- Refill schema on PostgreSQL: the `coupons` table is now created before `orders`. A fresh PostgreSQL database previously failed at startup because `orders` references `coupons`. Existing databases already have both tables, so the change has no effect on them.
+- Supplier API documentation: none is stored in this repository. The refill and cancel contract is taken from the adapter code only and is not verified against the supplier's documentation.

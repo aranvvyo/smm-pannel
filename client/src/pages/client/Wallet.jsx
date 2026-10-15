@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { get } from '../../api.js';
 import { usePoll, fmtInr, fmtUsd, timeAgo, Empty, Icon } from '../../ui.jsx';
+import { INR_DEPOSIT_ENTRY_VISIBLE } from '../../lib/depositOptions.js';
 
 const TX_META = {
   deposit: ['Deposit', 'deposit', 'var(--success)'],
@@ -34,7 +35,9 @@ export default function Wallet() {
           )}
           <div className="stack" style={{ gap: 8, marginTop: 14 }}>
             <Link to="/deposit" className="btn btn-primary btn-sm"><Icon name="deposit" size={15} stroke={2.2} /> Deposit</Link>
-            <Link to="/deposit/inr" className="btn btn-outline btn-sm"><Icon name="bank" size={15} stroke={2.2} /> Deposit in INR</Link>
+            {INR_DEPOSIT_ENTRY_VISIBLE && (
+              <Link to="/deposit/inr" className="btn btn-outline btn-sm"><Icon name="bank" size={15} stroke={2.2} /> Deposit in INR</Link>
+            )}
           </div>
         </div>
         <div className="card">

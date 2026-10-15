@@ -3,6 +3,7 @@ import { validateCommentOrder } from './commentOrder.js';
 import { computePricing } from './money.js';
 import { createAdapter } from './provider.js';
 import { notify } from './notifier.js';
+import { requestRefill, proportionalRefund, RefillError } from './orderRefill.js';
 import { expireStaleDeposits } from './apirone.js';
 import { logSecurity } from '../middleware/auth.js';
 import {
@@ -366,11 +367,26 @@ export async function cancelOrder({ admin, orderId }) {
     const err = new ProviderError(`Provider refused the cancel: ${e.message}`); throw err;
   }
 
+  // An accepted cancel request is NOT proof that the supplier cancelled the order.
+  // Confirm the supplier's own status and unused quantity before any refund. If that
+  // cannot be confirmed, nothing is refunded and the attempt is logged for review.
+  let confirmed = null;
+  try {
+    confirmed = await createAdapter(provider.adapter, provider).orderStatus(o.provider_order_id || o.order_ref);
+  } catch { confirmed = null; }
+  const confirmedStatus = confirmed ? normalizeStatus(String(confirmed.status || '')) : null;
+  const confirmedRemains = confirmed ? Math.trunc(Number(confirmed.remains)) : NaN;
+  const cancelConfirmed = confirmedStatus === 'CANCELED'
+    && Number.isFinite(confirmedRemains) && confirmedRemains >= 0 && confirmedRemains <= o.quantity;
+  if (!cancelConfirmed) {
+    logSecurity(admin?.id, admin?.email, 'cancel_unconfirmed', 'admin');
+    throw new ProviderError('The supplier did not confirm the cancellation. Nothing was refunded and the order was not changed. Check the supplier before retrying.');
+  }
+
   const now = Date.now();
-  const remains = Math.max(0, Number(o.remains) || 0);
-  const refundInr = supportsCancel && remains > 0
-    ? Math.round((o.price_inr * remains) / Math.max(1, o.quantity))
-    : 0;
+  const remains = confirmedRemains;
+  // Refund = price × supplier-confirmed unused ÷ quantity (integer paise, half-up).
+  const refundInr = supportsCancel ? proportionalRefund(o.price_inr, o.quantity, remains) : 0;
 
   db.exec('BEGIN');
   try {
@@ -412,24 +428,18 @@ export async function refillOrder({ admin, orderId }) {
   const provider = db.prepare('SELECT * FROM providers WHERE id=?').get(o.provider_id);
   if (!provider) { const e = new Error('Provider not found.'); e.code = '404'; throw e; }
   const service = db.prepare('SELECT * FROM services WHERE id=?').get(o.service_id);
-  if (service?.refill !== 1) { const e = new Error('This service does not support refill.'); e.code = 'NO_REFILL'; throw e; }
-
-  let upstream;
+  // Admin refill goes through the same audited request path as customer refill. The
+  // order's status and remains are NOT changed: a refill is a separate supplier order.
   try {
-    upstream = await createAdapter(provider.adapter, provider).refill(o.provider_order_id || o.order_ref);
+    return await requestRefill({ db, order: o, service, provider, actor: 'admin', userId: admin?.id });
   } catch (e) {
-    db.prepare('UPDATE providers SET last_error=?, updated_at=? WHERE id=?').run(String(e.message).slice(0, 300), Date.now(), provider.id);
-    const err = new ProviderError(`Provider refused the refill: ${e.message}`); throw err;
+    if (e instanceof RefillError) {
+      const err = new Error(e.message);
+      err.code = e.code === 'REFILL_NOT_SUPPORTED' ? 'NO_REFILL' : e.code === 'NOT_FOUND' ? '404' : 'PROVIDER_ERROR';
+      throw err;
+    }
+    throw e;
   }
-
-  const now = Date.now();
-  const upStatus = String(upstream?.status || 'IN_PROGRESS').toUpperCase();
-  db.prepare("UPDATE orders SET status=?, start_count=0, remains=quantity, updated_at=? WHERE id=?")
-    .run(normalizeStatus(upStatus), now, o.id);
-
-  logSecurity(admin?.id, admin?.email, 'refill_order', 'admin');
-  notify(o.user_id, 'order', 'Order Refilled', `#${o.order_ref} has been refilled.`);
-  return { ok: true, status: normalizeStatus(upStatus) };
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +452,9 @@ export function orderWithService(db, orderId) {
             o.price_inr, o.discount_inr, o.status, o.start_count, o.remains,
             o.created_at, o.coupon_id,
             s.name AS service_name, s.description AS service_description, s.speed_hint, s.min, s.max,
-            c.name AS category_name
+            c.name AS category_name,
+            COALESCE(s.refill, 0) AS refill_supported,
+            (SELECT r.status FROM order_refill_requests r WHERE r.order_id = o.id ORDER BY r.id DESC LIMIT 1) AS refill_status
      FROM orders o
      LEFT JOIN services s ON s.id = o.service_id
      LEFT JOIN categories c ON c.id = s.category_id
@@ -456,7 +468,9 @@ export function userOrders(db, userId) {
   return db.prepare(
     `SELECT o.order_ref, o.id, o.service_id, o.link, o.quantity, o.price_inr, o.discount_inr,
             o.status, o.start_count, o.remains, o.created_at,
-            s.name AS service_name, s.speed_hint, c.name AS category_name
+            s.name AS service_name, s.speed_hint, c.name AS category_name,
+            COALESCE(s.refill, 0) AS refill_supported,
+            (SELECT r.status FROM order_refill_requests r WHERE r.order_id = o.id ORDER BY r.id DESC LIMIT 1) AS refill_status
      FROM orders o
      LEFT JOIN services s ON s.id = o.service_id
      LEFT JOIN categories c ON c.id = s.category_id
