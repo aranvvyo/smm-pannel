@@ -289,3 +289,24 @@ CREATE TABLE IF NOT EXISTS inr_deposits (
 CREATE INDEX IF NOT EXISTS idx_inr_deposits_user ON inr_deposits(user_id, status);
 -- The UNIQUE index on order_id is created by the db.js migration (ensureColumns),
 -- after the column is added. Creating it here would fail on existing databases.
+-- Customer refill requests (one row per supplier refill call). Added for the client
+-- Refill button. Status: REQUESTED (sent, awaiting supplier reply) | ACCEPTED (supplier
+-- returned a refill id) | REJECTED (supplier refused; nothing changed) | AMBIGUOUS
+-- (outcome unknown; blocks further refills until reviewed).
+-- provider_refill_id is server-only and is never returned to customers.
+-- provider_status holds the supplier's own status text from refill_status, unmapped.
+CREATE TABLE IF NOT EXISTS order_refill_requests (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id           INTEGER NOT NULL REFERENCES orders(id),
+  user_id            INTEGER NOT NULL REFERENCES users(id),
+  status             TEXT NOT NULL,
+  provider_refill_id TEXT,
+  provider_status    TEXT,
+  provider_checked_at INTEGER,
+  reason             TEXT,
+  created_at         INTEGER NOT NULL,
+  updated_at         INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_refill_order ON order_refill_requests(order_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_refill_inflight ON order_refill_requests(order_id)
+  WHERE status IN ('REQUESTED','AMBIGUOUS');

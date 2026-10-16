@@ -4,7 +4,7 @@ import { registerProviderAdapter } from '../provider.js';
 // Generic "standard SMM POST API" adapter — works with the common JSON or
 // form-encoded SMM API contract used by most providers:
 //   POST {api_url}  body {action, key, ...}
-// Actions: services | add | status | balance | cancel | refill
+// Actions: services | add | status | balance | cancel | refill | refill_status
 //
 // Safety contract (never violated, even on errors):
 //   - every request has a hard timeout (AbortController);
@@ -29,7 +29,9 @@ function supplierError(message, kind, category) {
   return Object.assign(new Error(message), { kind, category });
 }
 
-async function fetchJSON(apiUrl, apiKey, form) {
+// opts.refusalOn429: for refill actions only. A 429 means the supplier did not
+// process the request, so it is a refusal (nothing accepted), not an unknown outcome.
+async function fetchJSON(apiUrl, apiKey, form, opts = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   let res;
@@ -49,6 +51,10 @@ async function fetchJSON(apiUrl, apiKey, form) {
       'unknown', timedOut ? 'timeout' : 'network');
   } finally {
     clearTimeout(timer);
+  }
+
+  if (opts.refusalOn429 && res.status === 429) {
+    throw supplierError('Supplier rate limit reached. Try again later.', 'rejected', 'rate_limited');
   }
 
   const text = await res.text();
@@ -240,8 +246,17 @@ function factory(row) {
     async cancel(id) {
       return await fetchJSON(apiUrl, apiKey, { action: 'cancel', order: id });
     },
+    // Standard SMM API v2 refill: {action:'refill', order:<supplier order id>}
+    // returns {refill: <refill id>} on success or {error} on refusal.
     async refill(id) {
-      return await fetchJSON(apiUrl, apiKey, { action: 'refill', order: id });
+      return await fetchJSON(apiUrl, apiKey, { action: 'refill', order: id }, { refusalOn429: true });
+    },
+    // Standard SMM API v2 refill status: {action:'refill_status', refill:<refill id>}
+    // returns {status: '<supplier text>'}. The text is passed through unchanged;
+    // this code does not map or invent status names.
+    async refillStatus(refillId) {
+      const data = await fetchJSON(apiUrl, apiKey, { action: 'refill_status', refill: String(refillId) }, { refusalOn429: true });
+      return { status: data && data.status != null ? String(data.status) : null };
     },
   };
 }

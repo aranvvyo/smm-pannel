@@ -3,6 +3,7 @@ import { getDb } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { fmtIST } from '../lib/ist.js';
 import { sendErr, ah } from './_helpers.js';
+import { resolveRefillReview, RefillError } from '../lib/orderRefill.js';
 import { cancelOrder as realCancel, refillOrder as realRefill, reconcileOrder, LifecycleError } from '../lib/orderRouter.js';
 
 const r = Router();
@@ -87,6 +88,22 @@ r.post('/:id/cancel', ah(async (req, res) => {
   }
 }));
 
+// POST /api/admin/orders/:id/refill-review — admin decision on an AMBIGUOUS or abandoned
+// refill, after checking the supplier by hand. Never calls the supplier.
+r.post('/:id/refill-review', ah(async (req, res) => {
+  const b = req.body || {};
+  try {
+    const out = resolveRefillReview({
+      db: getDb(), orderId: Number(req.params.id), adminId: req.user?.id,
+      decision: b.decision, refillId: b.refill_id, note: b.note,
+    });
+    return res.json(out);
+  } catch (e) {
+    if (e instanceof RefillError) return sendErr(res, e.http, e.message, e.code);
+    throw e;
+  }
+}));
+
 // POST /api/admin/orders/:id/refill — REAL refill, gated on upstream support.
 r.post('/:id/refill', ah(async (req, res) => {
   try {
@@ -95,6 +112,7 @@ r.post('/:id/refill', ah(async (req, res) => {
   } catch (e) {
     if (e.code === '404') return sendErr(res, 404, e.message);
     if (e.code === 'NO_REFILL') return sendErr(res, 400, e.message);
+    if (e.http) return sendErr(res, e.http, e.message);
     if (e.code === 'PROVIDER_ERROR') return sendErr(res, 502, e.message);
     return sendErr(res, 502, `Refill failed: ${e.message}`);
   }

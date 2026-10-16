@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { get } from '../../api.js';
-import { usePoll, fmtInr, timeAgo, StatusBadge, Empty } from '../../ui.jsx';
+import { get, post } from '../../api.js';
+import { usePoll, fmtInr, timeAgo, StatusBadge, Empty, useToast } from '../../ui.jsx';
 
 const FILTERS = ['ALL', 'PENDING', 'IN_PROGRESS', 'PARTIAL', 'COMPLETED', 'CANCELED', 'CANCELLED', 'FAILED', 'REFUNDED'];
 
@@ -27,16 +27,93 @@ function ProgressCell({ o }) {
   );
 }
 
+// Refill control for one order. Eligibility comes from the server (o.refill); this
+// component only displays it. While a request is running every refill action is
+// disabled, so a double click cannot send a second supplier request.
+const REFILL_DONE_STATUSES = ['COMPLETED', 'PARTIAL'];
+
+function RefillControl({ o, onChanged }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(null); // null | 'submit' | 'status'
+  const [note, setNote] = useState(null); // { tone: 'ok' | 'err', text }
+  const refill = o.refill;
+  if (!refill || !refill.supported) return null; // service does not offer refill: show nothing
+
+  const submit = async () => {
+    setBusy('submit');
+    setNote(null);
+    try {
+      await post(`/api/orders/${o.id}/refill`, {});
+      setNote({ tone: 'ok', text: 'Refill requested. The supplier accepted the request.' });
+      toast('Refill requested.', 'success');
+    } catch (e) {
+      const text = e.message || 'The refill could not be requested.';
+      setNote({ tone: 'err', text });
+      toast(text, 'error');
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  };
+
+  const checkStatus = async () => {
+    setBusy('status');
+    setNote(null);
+    try {
+      const d = await post(`/api/orders/${o.id}/refill/status`, {});
+      setNote({ tone: 'ok', text: `Supplier status: ${d.supplier_status}` });
+    } catch (e) {
+      setNote({ tone: 'err', text: e.message || 'The refill status could not be checked.' });
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  };
+
+  const showReason = !refill.eligible && refill.reason
+    && (REFILL_DONE_STATUSES.includes(o.status) || refill.status) && refill.status !== 'ACCEPTED';
+
+  return (
+    <div className="refill-cell">
+      {refill.eligible && (
+        <button className="btn btn-outline btn-sm refill-btn" onClick={submit} disabled={busy !== null}
+          aria-busy={busy === 'submit'}>
+          {busy === 'submit' ? 'Requesting…' : 'Refill'}
+        </button>
+      )}
+      {refill.status === 'ACCEPTED' && (
+        <>
+          <span className="badge badge-info">Refill requested</span>
+          <span className="faint refill-note">
+            Supplier status: {refill.supplier_status || 'not checked yet'}
+          </span>
+          <button className="btn btn-ghost btn-sm refill-btn" onClick={checkStatus} disabled={busy !== null}
+            aria-busy={busy === 'status'}>
+            {busy === 'status' ? 'Checking…' : 'Check status'}
+          </button>
+        </>
+      )}
+      {showReason && <span className="faint refill-note">{refill.reason}</span>}
+      {note && (
+        <span role="status" className={`refill-note ${note.tone === 'err' ? 'refill-err' : 'refill-ok'}`}>
+          {note.text}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState('ALL');
 
-  usePoll(async () => {
+  const load = async () => {
     const d = await get('/api/orders');
     setOrders(d.orders);
     setLoaded(true);
-  }, 10000);
+  };
+  usePoll(load, 10000);
 
   const counts = useMemo(() => {
     const c = { ALL: orders.length };
@@ -82,7 +159,10 @@ export default function Orders() {
                         ? <ProgressCell o={o} />
                         : <span className="faint">—</span>}
                     </td>
-                    <td><StatusBadge status={o.status} /></td>
+                    <td>
+                      <StatusBadge status={o.status} />
+                      <RefillControl o={o} onChanged={load} />
+                    </td>
                     <td>
                       {fmtInr(o.price_inr)}
                       {o.discount_inr > 0 && <div className="faint" style={{ fontSize: '0.78rem' }}>−{fmtInr(o.discount_inr)} coupon</div>}
