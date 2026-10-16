@@ -5,6 +5,7 @@ import { createAdapter } from './provider.js';
 import { notify } from './notifier.js';
 import { expireStaleDeposits } from './apirone.js';
 import { logSecurity } from '../middleware/auth.js';
+import { requestRefill, RefillError } from './orderRefill.js';
 import {
   InsufficientBalanceError, ProviderError, DuplicateOrderError, OrderVerifyingError, LifecycleError,
   reserveOrder, settleAccepted, settleRejected, markAmbiguous, reconcileOrder, sweepStaleSubmitting,
@@ -407,29 +408,22 @@ export async function cancelOrder({ admin, orderId }) {
 
 export async function refillOrder({ admin, orderId }) {
   const db = getDb();
-  const o = db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);
-  if (!o) { const e = new Error('Order not found.'); e.code = '404'; throw e; }
-  const provider = db.prepare('SELECT * FROM providers WHERE id=?').get(o.provider_id);
-  if (!provider) { const e = new Error('Provider not found.'); e.code = '404'; throw e; }
-  const service = db.prepare('SELECT * FROM services WHERE id=?').get(o.service_id);
-  if (service?.refill !== 1) { const e = new Error('This service does not support refill.'); e.code = 'NO_REFILL'; throw e; }
-
-  let upstream;
+  const o = db.prepare("SELECT * FROM orders WHERE id=?").get(orderId);
+  if (!o) { const e = new Error("Order not found."); e.code = "404"; throw e; }
+  // Same guarded path as the customer refill (orderRefill.js): real supplier call with
+  // the supplier order id only, one in-flight refill at a time, and the order status,
+  // remains and charges are NOT changed by a refill.
   try {
-    upstream = await createAdapter(provider.adapter, provider).refill(o.provider_order_id || o.order_ref);
+    return await requestRefill({ db, order: o, actor: "admin", userId: admin?.id });
   } catch (e) {
-    db.prepare('UPDATE providers SET last_error=?, updated_at=? WHERE id=?').run(String(e.message).slice(0, 300), Date.now(), provider.id);
-    const err = new ProviderError(`Provider refused the refill: ${e.message}`); throw err;
+    if (e instanceof RefillError) {
+      const err = new Error(e.message);
+      err.code = e.code === "REFILL_NOT_SUPPORTED" ? "NO_REFILL" : e.code === "NOT_FOUND" ? "404" : "PROVIDER_ERROR";
+      err.http = e.http;
+      throw err;
+    }
+    throw e;
   }
-
-  const now = Date.now();
-  const upStatus = String(upstream?.status || 'IN_PROGRESS').toUpperCase();
-  db.prepare("UPDATE orders SET status=?, start_count=0, remains=quantity, updated_at=? WHERE id=?")
-    .run(normalizeStatus(upStatus), now, o.id);
-
-  logSecurity(admin?.id, admin?.email, 'refill_order', 'admin');
-  notify(o.user_id, 'order', 'Order Refilled', `#${o.order_ref} has been refilled.`);
-  return { ok: true, status: normalizeStatus(upStatus) };
 }
 
 // ---------------------------------------------------------------------------

@@ -95,6 +95,7 @@ r.post('/:id/refill', ah(async (req, res) => {
   } catch (e) {
     if (e.code === '404') return sendErr(res, 404, e.message);
     if (e.code === 'NO_REFILL') return sendErr(res, 400, e.message);
+    if (e.http) return sendErr(res, e.http, e.message);
     if (e.code === 'PROVIDER_ERROR') return sendErr(res, 502, e.message);
     return sendErr(res, 502, `Refill failed: ${e.message}`);
   }

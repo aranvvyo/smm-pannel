@@ -5,6 +5,7 @@ import {
   placeOrder, quoteOrder, userOrders, orderWithService,
   InsufficientBalanceError, ProviderError, DuplicateOrderError, OrderVerifyingError,
 } from '../lib/orderRouter.js';
+import { requestRefill, checkRefillStatus, refillEligibility, refillSummariesForUser, RefillError } from '../lib/orderRefill.js';
 import { ah, sendErr } from './_helpers.js';
 
 // POST /api/quote — preview cost + coupon effect (server-side math only).
@@ -75,9 +76,13 @@ r.post('/', requireAuth, (req, res, next) => {
   }
 }));
 
-// GET /api/orders — user's order history.
+// GET /api/orders — user's order history. Each order carries a server-computed
+// `refill` summary (eligible, reason, status). The client never decides eligibility.
 r.get('/', requireAuth, (req, res) => {
-  return res.json({ orders: userOrders(getDb(), req.user.id) });
+  const db = getDb();
+  const refillById = refillSummariesForUser(db, req.user.id);
+  const orders = userOrders(db, req.user.id).map((o) => ({ ...o, refill: refillById.get(Number(o.id)) || null }));
+  return res.json({ orders });
 });
 
 // GET /api/orders/:id
@@ -87,5 +92,40 @@ r.get('/:id', requireAuth, (req, res) => {
   if (!order || order.user_id !== req.user.id) return sendErr(res, 404, 'Order not found.');
   return res.json({ order: orderWithService(db, order.id) });
 });
+
+// POST /api/orders/:id/refill — customer refill. Ownership, eligibility, one active
+// refill per order and the supplier's reply are all checked on the server. The
+// supplier id is never returned to the client.
+r.post('/:id/refill', requireAuth, ah(async (req, res) => {
+  const db = getDb();
+  const order = db.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number(req.params.id), req.user.id);
+  if (!order) return sendErr(res, 404, 'Order not found.');
+  try {
+    const out = await requestRefill({ db, order, actor: 'customer', userId: req.user.id });
+    return res.status(202).json({
+      ok: true,
+      refill_status: out.status,
+      refill: refillEligibility({ db, order, actor: 'customer' }),
+    });
+  } catch (e) {
+    if (e instanceof RefillError) return sendErr(res, e.http, e.message, e.code);
+    throw e;
+  }
+}));
+
+// POST /api/orders/:id/refill/status — asks the supplier for the latest refill's status
+// (rate-limited per request). Returns the supplier's own text, unchanged.
+r.post('/:id/refill/status', requireAuth, ah(async (req, res) => {
+  const db = getDb();
+  const order = db.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number(req.params.id), req.user.id);
+  if (!order) return sendErr(res, 404, 'Order not found.');
+  try {
+    const out = await checkRefillStatus({ db, order });
+    return res.json({ ok: true, ...out, refill: refillEligibility({ db, order, actor: 'customer' }) });
+  } catch (e) {
+    if (e instanceof RefillError) return sendErr(res, e.http, e.message, e.code);
+    throw e;
+  }
+}));
 
 export default r;

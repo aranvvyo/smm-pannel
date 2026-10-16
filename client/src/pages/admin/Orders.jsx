@@ -26,7 +26,8 @@ export default function AdminOrders() {
       const d = await post(`/api/admin/orders/${o.id}/${kind}`, {});
       const refundNote = kind === 'cancel' && d.refund_inr > 0
         ? ` — ${fmtInr(d.refund_inr)} refunded.` : '';
-      toast(`Order ${d.status}.${refundNote}`, 'success');
+      if (kind === 'refill') toast('Refill requested. The supplier accepted it.', 'success');
+      else toast(`Order ${d.status}.${refundNote}`, 'success');
       load(status, q);
     } catch (x) { toast(x.message, 'error'); }
   };
