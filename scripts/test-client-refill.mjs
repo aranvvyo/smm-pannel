@@ -20,6 +20,7 @@ process.env.NODE_ENV = '';
 process.env.ADMIN_EMAIL_1 = 'refill-admin@test.dev';
 process.env.ADMIN_PASSWORD_1 = 'refill-admin-pass-1';
 process.env.SESSION_SECRET = 'client-refill-session-secret';
+process.env.REFILL_ENABLED = '1'; // the gate is off by default; the suite exercises the enabled path
 
 // ---- fixture supplier (replaces fetch for the supplier host only) -----------
 const realFetch = globalThis.fetch;
@@ -408,6 +409,93 @@ await t("[33a] per-user eligibility map covers only that customer\x27s orders an
   assert.ok(!map.has(theirs), "stranger order absent");
   assert.strictEqual(map.get(mine).eligible, true);
   assert.ok(!JSON.stringify([...map.values()]).includes("SUP-MAP"), "supplier id not in summaries");
+});
+
+// ---- 5b. gate, stale claims, admin review ------------------------------------
+const insertRow = (orderId, status, createdAt) => db.prepare(
+  "INSERT INTO order_refill_requests (order_id, user_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"
+).run(orderId, owner, status, createdAt, createdAt);
+const MIN = 60 * 1000;
+
+await t("[35b] REFILL_ENABLED off: no supplier call on refill or status; eligibility says disabled", async () => {
+  const id = makeOrder({ providerOrderId: "SUP-GATE" });
+  resetSupplier();
+  const prev = process.env.REFILL_ENABLED;
+  delete process.env.REFILL_ENABLED;
+  try {
+    await assert.rejects(customerRefill(id), isRefillErr("REFILL_DISABLED"));
+    assert.strictEqual(R.refillEligibility({ db, order: orderRow(id) }).eligible, false);
+    assert.match(R.refillEligibility({ db, order: orderRow(id) }).reason, /not enabled/);
+    await assert.rejects(R.checkRefillStatus({ db, order: orderRow(id) }), isRefillErr("REFILL_DISABLED"));
+    assert.strictEqual(supplierCalls.length, 0, "the gate blocks every supplier call");
+  } finally { process.env.REFILL_ENABLED = prev; }
+});
+
+await t("[36] abandoned REQUESTED claim becomes AMBIGUOUS and is never resubmitted automatically", async () => {
+  const id = makeOrder({ providerOrderId: "SUP-STALE" });
+  insertRow(id, "REQUESTED", Date.now() - 20 * MIN);
+  resetSupplier();
+  supplierReply = () => json({ refill: "SHOULD-NOT-SEND" });
+  await assert.rejects(customerRefill(id), isRefillErr("REFILL_ALREADY_REQUESTED"));
+  assert.strictEqual(supplierCalls.length, 0, "no supplier call for an abandoned claim");
+  assert.strictEqual(latestRefill(id).status, "AMBIGUOUS");
+  assert.strictEqual(latestRefill(id).reason, "stale_claim");
+  // Recovery does not reopen the order for retries either.
+  await assert.rejects(customerRefill(id), isRefillErr("REFILL_ALREADY_REQUESTED"));
+  assert.strictEqual(supplierCalls.length, 0);
+});
+
+await t("[37] a fresh REQUESTED claim (live call) is not swept", async () => {
+  const id = makeOrder({ providerOrderId: "SUP-LIVE" });
+  insertRow(id, "REQUESTED", Date.now() - 1 * MIN);
+  R.sweepStaleClaims(db, Date.now());
+  assert.strictEqual(latestRefill(id).status, "REQUESTED");
+});
+
+await t("[38] admin review \"accepted\" with the supplier refill id; status can then be checked", async () => {
+  const id = makeOrder({ providerOrderId: "SUP-REV-A" });
+  insertRow(id, "AMBIGUOUS", Date.now());
+  const out = R.resolveRefillReview({ db, orderId: id, adminId: 1, decision: "accepted", refillId: "R-REVIEW-1", note: "Panel shows refill R-REVIEW-1" });
+  assert.deepStrictEqual(out, { ok: true, status: "ACCEPTED" });
+  assert.strictEqual(latestRefill(id).provider_refill_id, "R-REVIEW-1");
+  resetSupplier();
+  supplierReply = () => json({ status: "Pending" });
+  const st = await R.checkRefillStatus({ db, order: orderRow(id), now: Date.now() + 120000 });
+  assert.strictEqual(st.supplier_status, "Pending");
+  assert.strictEqual(supplierCalls[0].refill, "R-REVIEW-1");
+});
+
+await t("[39] admin review \"not_accepted\" lets the customer request again", async () => {
+  const id = makeOrder({ providerOrderId: "SUP-REV-N" });
+  insertRow(id, "AMBIGUOUS", Date.now());
+  R.resolveRefillReview({ db, orderId: id, adminId: 1, decision: "not_accepted", note: "Supplier shows no refill for this order" });
+  assert.strictEqual(latestRefill(id).status, "REJECTED");
+  supplierReply = () => json({ refill: "R-AFTER-REVIEW" });
+  const out = await customerRefill(id);
+  assert.strictEqual(out.status, "ACCEPTED");
+});
+
+await t("[40] review input is validated and cannot touch orders that are not in review", () => {
+  const id = makeOrder({ providerOrderId: "SUP-REV-V" });
+  insertRow(id, "AMBIGUOUS", Date.now());
+  assert.throws(() => R.resolveRefillReview({ db, orderId: id, adminId: 1, decision: "bogus", note: "valid note" }), isRefillErr("BAD_DECISION"));
+  assert.throws(() => R.resolveRefillReview({ db, orderId: id, adminId: 1, decision: "accepted", note: "valid note" }), isRefillErr("BAD_REFILL_ID"));
+  assert.throws(() => R.resolveRefillReview({ db, orderId: id, adminId: 1, decision: "not_accepted", note: "x" }), isRefillErr("BAD_NOTE"));
+  assert.strictEqual(latestRefill(id).status, "AMBIGUOUS", "failed validation changes nothing");
+  const other = makeOrder({ providerOrderId: "SUP-REV-O" });
+  assert.throws(() => R.resolveRefillReview({ db, orderId: other, adminId: 1, decision: "not_accepted", note: "no refill here" }), isRefillErr("NOT_IN_REVIEW"));
+  const accepted = makeOrder({ providerOrderId: "SUP-REV-OK" });
+  insertRow(accepted, "ACCEPTED", Date.now());
+  assert.throws(() => R.resolveRefillReview({ db, orderId: accepted, adminId: 1, decision: "not_accepted", note: "should not apply" }), isRefillErr("NOT_IN_REVIEW"));
+  assert.strictEqual(latestRefill(accepted).status, "ACCEPTED");
+});
+
+await t("[41] customer sees a review message for an ambiguous refill, not a retry button", () => {
+  const id = makeOrder({ providerOrderId: "SUP-REV-M" });
+  insertRow(id, "AMBIGUOUS", Date.now());
+  const e = R.refillEligibility({ db, order: orderRow(id) });
+  assert.strictEqual(e.eligible, false);
+  assert.match(e.reason, /being reviewed/);
 });
 
 // ---- 6. static contract of the customer page ----------------------------------

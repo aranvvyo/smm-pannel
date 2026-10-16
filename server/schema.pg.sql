@@ -105,6 +105,21 @@ CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider_id);
 -- One row per (provider, upstream service) so sync upserts are idempotent.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_services_prov_svc ON services(provider_id, provider_service_id);
 
+-- coupons must exist before orders (orders.coupon_id references it).
+CREATE TABLE IF NOT EXISTS coupons (
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  code          TEXT UNIQUE NOT NULL,
+  type          TEXT NOT NULL,            -- 'percent' | 'fixed_inr'
+  value         DOUBLE PRECISION NOT NULL, -- percent (0-100) or INR paise for fixed
+  min_order_inr BIGINT NOT NULL DEFAULT 0, -- min order subtotal (paise) to apply
+  starts_at     BIGINT,
+  expires_at    BIGINT,
+  active        BIGINT NOT NULL DEFAULT 1,
+  usage_limit   BIGINT,                  -- NULL = unlimited
+  used_count    BIGINT NOT NULL DEFAULT 0,
+  created_at    BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS orders (
   id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   order_ref        TEXT UNIQUE NOT NULL,   -- public "Order ID" shown to users
@@ -174,19 +189,6 @@ CREATE TABLE IF NOT EXISTS deposits (
 CREATE INDEX IF NOT EXISTS idx_deposits_user ON deposits(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_deposits_invoice ON deposits(invoice_id);
 
-CREATE TABLE IF NOT EXISTS coupons (
-  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  code          TEXT UNIQUE NOT NULL,
-  type          TEXT NOT NULL,            -- 'percent' | 'fixed_inr'
-  value         DOUBLE PRECISION NOT NULL, -- percent (0-100) or INR paise for fixed
-  min_order_inr BIGINT NOT NULL DEFAULT 0, -- min order subtotal (paise) to apply
-  starts_at     BIGINT,
-  expires_at    BIGINT,
-  active        BIGINT NOT NULL DEFAULT 1,
-  usage_limit   BIGINT,                  -- NULL = unlimited
-  used_count    BIGINT NOT NULL DEFAULT 0,
-  created_at    BIGINT NOT NULL
-);
 
 CREATE TABLE IF NOT EXISTS coupon_uses (
   id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
