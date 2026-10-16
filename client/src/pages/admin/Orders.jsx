@@ -74,7 +74,7 @@ export default function AdminOrders() {
                         {['PENDING', 'IN_PROGRESS'].includes(o.status) && Number(o.cancel) === 1 && (
                           <button className="btn btn-ghost btn-sm" onClick={() => act(o, 'cancel')}>Cancel</button>
                         )}
-                        {['PENDING', 'IN_PROGRESS'].includes(o.status) && Number(o.refill) === 1 && (
+                        {['COMPLETED', 'PARTIAL'].includes(o.status) && Number(o.refill) === 1 && (
                           <button className="btn btn-ghost btn-sm" onClick={() => act(o, 'refill')}>Refill</button>
                         )}
                       </div>

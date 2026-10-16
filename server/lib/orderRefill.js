@@ -126,7 +126,7 @@ export function refillEligibility({ db, order, actor = 'customer' }) {
   }
   summary.supported = true;
   if (!refillEnabled()) return { ...summary, reason: REFILL_DISABLED_MESSAGE };
-  if (actor === 'customer' && !CUSTOMER_REFILL_ORDER_STATUSES.includes(order.status)) {
+  if (!CUSTOMER_REFILL_ORDER_STATUSES.includes(order.status)) {
     return { ...summary, reason: 'Refill is available once your order has been completed or partly delivered.' };
   }
   if (!order.provider_order_id) {
@@ -167,7 +167,7 @@ export async function requestRefill({ db, order, actor, userId, now = Date.now()
   if (!service || Number(service.refill) !== 1) {
     throw new RefillError('REFILL_NOT_SUPPORTED', 'This service does not offer refill.', 409);
   }
-  if (actor === 'customer' && !CUSTOMER_REFILL_ORDER_STATUSES.includes(order.status)) {
+  if (!CUSTOMER_REFILL_ORDER_STATUSES.includes(order.status)) {
     throw new RefillError('REFILL_NOT_AVAILABLE',
       'Refill is available once your order has been completed or partly delivered.', 409);
   }

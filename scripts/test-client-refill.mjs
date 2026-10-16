@@ -401,6 +401,14 @@ await t('[32] admin refill of a missing order returns 404 mapping', async () => 
   await assert.rejects(orderRouter.refillOrder({ admin: { id: 1 }, orderId: 987654 }), isErr('404'));
 });
 
+await t('[32b] admin refill on a PENDING order is refused with 409 and makes zero supplier calls', async () => {
+  resetSupplier();
+  const id = makeOrder({ serviceId: svcRefillSmm, providerId: smmProv, status: 'PENDING', providerOrderId: 'SUP-ADM-PEND' });
+  await assert.rejects(orderRouter.refillOrder({ admin: { id: 1 }, orderId: id }), (e) => e.http === 409);
+  assert.strictEqual(supplierCalls.length, 0);
+  assert.strictEqual(latestRefill(id), undefined);
+});
+
 await t("[33a] per-user eligibility map covers only that customer\x27s orders and never exposes ids", () => {
   const mine = makeOrder({ userId: owner, providerOrderId: "SUP-MAP" });
   const theirs = makeOrder({ userId: stranger, providerOrderId: "SUP-THEIRS" });
