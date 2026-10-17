@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { get, post } from '../../api.js';
 import { useToast, fmtInr, fmtUsd, fmtRateINR, timeAgo, Icon } from '../../ui.jsx';
 import QRCode from 'qrcode';
@@ -163,6 +164,9 @@ export default function Deposit() {
       <p className="page-sub">
         Pay in USD with crypto — credited to your wallet in INR at {fmtRateINR(rate)} per 1 USD.
         {sim && <span className="badge badge-warn" style={{ marginLeft: 10 }}>Simulated</span>}
+      </p>
+      <p className="faint" style={{ fontSize: '0.85rem', marginTop: -8 }}>
+        Deposits are generally non-withdrawable. Read the <Link to="/refund-policy" className="muted">Refund &amp; Payment Policy</Link> before paying.
       </p>
       <DepositMaintenanceBanner status={maint.crypto} label="Crypto" />
 

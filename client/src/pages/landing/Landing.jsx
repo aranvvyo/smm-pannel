@@ -324,6 +324,7 @@ export default function Landing() {
           <div className="flex" style={{ justifyContent: 'center', marginTop: 10, gap: 18, fontSize: '0.9rem' }}>
             <Link to="/terms" className="muted">Terms</Link>
             <Link to="/privacy" className="muted">Privacy</Link>
+            <Link to="/refund-policy" className="muted">Refund &amp; Payment Policy</Link>
             <Link to="/login" className="muted">Client login</Link>
             <Link to="/admin/login" className="muted">Admin</Link>
           </div>

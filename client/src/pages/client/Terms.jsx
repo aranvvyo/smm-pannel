@@ -15,7 +15,7 @@ export default function TermsPage() {
           You must provide accurate information when creating an account. You are responsible for maintaining the security of your account credentials. One account per user.</p>
 
         <p><b style={{ color: 'var(--text)' }}>4. Payments</b><br />
-          All payments are made via cryptocurrency (LTC, USDT BEP20, USDT ERC20). Deposits are credited in INR based on the prevailing exchange rate. Once credited, wallet balances are non-refundable except at admin discretion.</p>
+          All payments are made via cryptocurrency (LTC, USDT BEP20, USDT ERC20). Deposits are credited in INR based on the prevailing exchange rate. Wallet balances are generally not withdrawable and are used to purchase services. Any refund is governed by our Refund, Deposit &amp; Payment Policy, and nothing in these Terms removes rights you have under applicable law.</p>
 
         <p><b style={{ color: 'var(--text)' }}>5. Order Delivery</b><br />
           Service delivery times vary by provider and are estimates only. InstaSMM does not guarantee exact delivery times. Partial deliveries may occur depending on the service provider.</p>
