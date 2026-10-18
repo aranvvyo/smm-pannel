@@ -25,7 +25,9 @@ console.log('policy pages (static)');
 
 // --- Terms of Service ---
 check('Terms: stale "September 2025" date removed', !terms.includes('September 2025'));
-check('Terms: dated 18 October 2026', terms.includes('Last updated: 18 October 2026'));
+check('Terms: no visible "Last updated" date line', !/Last updated/i.test(terms) && !/18 October 2026/.test(terms));
+check('Refund Policy: no visible "Last updated" date line', !/Last updated/i.test(refund) && !/18 October 2026/.test(refund));
+check('Terms and Refund Policy: no reference to a date shown on the page', !/date shown/i.test(terms + refund));
 check('Terms: drop-based services section states no warranty', terms.includes('Drop-Based Services: No Warranty') && terms.includes('do not include a warranty'));
 check('Terms: average drop-rate data is stated as non-warranty', terms.includes('does not create a warranty'));
 check('Terms: links to the Refund Policy and Privacy Policy', terms.includes('href="/refund-policy"') && terms.includes('href="/privacy"'));

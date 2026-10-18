@@ -37,7 +37,7 @@ const SECTIONS = [
   },
   {
     title: '10. Policy Enforcement & Updates',
-    body: 'We enforce this policy reasonably and consistently, including declining claims that are not supported by evidence or that breach our Terms of Service. We may update this policy. The updated version applies from the date shown on this page. Nothing in this policy removes rights you have under applicable consumer protection law that cannot be waived.',
+    body: 'We enforce this policy reasonably and consistently, including declining claims that are not supported by evidence or that breach our Terms of Service. We may update this policy. The updated version applies from the time it is published on this website. Nothing in this policy removes rights you have under applicable consumer protection law that cannot be waived.',
   },
 ];
 
@@ -45,7 +45,6 @@ export default function RefundPolicyPage() {
   return (
     <div className="card" style={{ maxWidth: 720, margin: '0 auto' }}>
       <h1 className="page-title">Refund, Deposit &amp; Payment Policy</h1>
-      <p className="page-sub">Last updated: 18 October 2026</p>
 
       <div className="stack" style={{ gap: 16, color: 'var(--muted)', lineHeight: 1.7, fontSize: '0.92rem' }}>
         <p>

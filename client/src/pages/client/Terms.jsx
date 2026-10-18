@@ -125,7 +125,7 @@ const SECTIONS = [
   {
     title: '14. Changes to These Terms and Related Policies',
     paras: [
-      'We may update these Terms from time to time. The updated version applies from the date shown at the top of this page. Changes do not remove any right you have under applicable consumer protection law.',
+      'We may update these Terms from time to time. The updated version applies from the time it is published on this website. Changes do not remove any right you have under applicable consumer protection law.',
       'These Terms are read together with the Refund, Deposit & Payment Policy and the Privacy Policy. If these Terms and the Refund, Deposit & Payment Policy appear to conflict on a refund decision, the Refund, Deposit & Payment Policy applies, subject to applicable law.',
     ],
   },
@@ -135,7 +135,6 @@ export default function TermsPage() {
   return (
     <div className="card" style={{ maxWidth: 720, margin: '0 auto' }}>
       <h1 className="page-title">Terms of Service</h1>
-      <p className="page-sub">Last updated: 18 October 2026</p>
 
       <div className="stack" style={{ gap: 16, color: 'var(--muted)', lineHeight: 1.7, fontSize: '0.92rem' }}>
         <p>
