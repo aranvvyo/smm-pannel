@@ -12,6 +12,10 @@ export function Layout({ children }) {
         <div className="container">
           <b style={{ color: 'var(--muted)' }}>InstaSMM</b>{' '}
           <span className="faint">SMM panel &middot; crypto deposits &middot; &copy; {new Date().getFullYear()} instasmm.store</span>
+          {' '}
+          <Link to="/terms" className="faint" style={{ marginLeft: 8 }}>Terms</Link>
+          {' '}
+          <Link to="/refund-policy" className="faint" style={{ marginLeft: 8 }}>Refund &amp; Payment Policy</Link>
         </div>
       </footer>
     </>

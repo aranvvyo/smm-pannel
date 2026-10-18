@@ -17,6 +17,7 @@ import NotificationsPage from './pages/client/Notifications.jsx';
 import ProfilePage from './pages/client/Profile.jsx';
 import TermsPage from './pages/client/Terms.jsx';
 import PrivacyPage from './pages/client/Privacy.jsx';
+import RefundPolicyPage from './pages/client/RefundPolicy.jsx';
 
 import AdminLayout from './pages/admin/AdminLayout.jsx';
 import AdminDashboard from './pages/admin/Dashboard.jsx';
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="/signup" element={<PublicOnly><Signup /></PublicOnly>} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/refund-policy" element={<RefundPolicyPage />} />
 
         {/* Client area */}
         <Route element={<RequireClient><ClientShell /></RequireClient>}>

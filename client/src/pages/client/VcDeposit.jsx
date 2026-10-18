@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { get, post } from '../../api.js';
 import { useToast, fmtInr, Icon, timeAgo } from '../../ui.jsx';
@@ -212,6 +213,9 @@ export default function VcDeposit() {
       <p className="page-sub">
         Add funds with UPI through INSTA SMM GATEWAY. Your wallet is credited only after
         the payment is verified, and only with the credit amount you requested.
+      </p>
+      <p className="faint" style={{ fontSize: '0.85rem', marginTop: -8 }}>
+        Deposits are generally non-withdrawable. Read the <Link to="/refund-policy" className="muted">Refund &amp; Payment Policy</Link> before paying.
       </p>
       <DepositMaintenanceBanner status={maint.inr} label="INR" />
 

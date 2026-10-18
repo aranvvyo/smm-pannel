@@ -56,11 +56,11 @@ const SECURITY = [
 
 const FAQS = [
   { q: 'What is InstaSMM?', a: 'A fully automated SMM panel. You buy followers, likes and views for your profiles, and our system delivers them automatically through multiple provider APIs.' },
-  { q: 'How long does delivery take?', a: 'Most orders start within seconds and complete within minutes to hours depending on the service and provider. You can track progress live on the My Orders page.' },
+  { q: 'How long does delivery take?', a: 'Delivery times are estimates that depend on the service and the supplier, and they are not guaranteed. You can track progress on the My Orders page.' },
   { q: 'Which payments do you accept?', a: 'We accept Litecoin (LTC) and USDT on BEP20 and ERC20. Deposits are made in USD and credited to your wallet in INR.' },
-  { q: 'Do you offer refunds?', a: 'Canceled orders return the full amount to your wallet. Orders already delivered cannot be refunded, though we offer refills for incomplete deliveries where available.' },
-  { q: 'Is my data safe?', a: 'Yes. Passwords are hashed with scrypt, sessions are encrypted HttpOnly cookies, and API keys are never exposed to the frontend.' },
-  { q: 'Can I cancel an order?', a: 'Cancel is available for PENDING or IN_PROGRESS orders. The amount not yet delivered is credited back to your wallet.' },
+  { q: 'Do you offer refunds?', a: 'If a supplier refuses an order when it is placed, the amount is refunded to your wallet automatically. Other refunds, refills and replacements depend on the service and on review, and are not guaranteed. See the Refund, Deposit & Payment Policy.' },
+  { q: 'Is my data safe?', a: 'Passwords are hashed with scrypt. Sessions use HttpOnly cookies, and provider API keys are never sent to your browser.' },
+  { q: 'Can I cancel an order?', a: 'Cancellation is handled through support and depends on what the service and supplier allow. Where cancellation is allowed, the undelivered portion is credited to your wallet. See the Refund, Deposit & Payment Policy.' },
 ];
 
 function Stat({ n, label }) {
@@ -324,6 +324,7 @@ export default function Landing() {
           <div className="flex" style={{ justifyContent: 'center', marginTop: 10, gap: 18, fontSize: '0.9rem' }}>
             <Link to="/terms" className="muted">Terms</Link>
             <Link to="/privacy" className="muted">Privacy</Link>
+            <Link to="/refund-policy" className="muted">Refund &amp; Payment Policy</Link>
             <Link to="/login" className="muted">Client login</Link>
             <Link to="/admin/login" className="muted">Admin</Link>
           </div>
