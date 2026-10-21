@@ -93,7 +93,7 @@ r.post('/:id/check', ah(async (req, res) => {
     return sendErr(res, 429, 'Please wait a little before checking this payment again.');
   }
   const out = await verifyDepositOnce({ depositId: own.id });
-  const row = getDb().prepare('SELECT * FROM inr_deposits WHERE id=?').get(own.id);
+  const row = getDb().prepare('SELECT * FROM inr_deposits WHERE id=? AND user_id=?').get(own.id, req.user.id);
   return res.json({
     deposit: toClientView(row),
     verification: { state: out.state, credited: out.credited === true },

@@ -115,30 +115,59 @@ export function claimInrDeposit({ userId, depositId } = {}) {
   return { ok: true, deposit: db.prepare('SELECT * FROM inr_deposits WHERE id=?').get(row.id) };
 }
 
+// The bank/UPI reference the admin verifies against: 6–35 letters, digits,
+// '-', '_' or '/'. Anything else is refused, so a free-text note can never be
+// stored as a "payment reference".
+export const PAYMENT_REF_RE = /^[A-Za-z0-9][A-Za-z0-9\-_/]{5,34}$/;
+// Stored and compared in UPPER case: the same bank reference typed in a
+// different case is the same payment.
+export function normalizePaymentRef(value) {
+  if (typeof value !== 'string') return null;
+  const s = value.trim().toUpperCase();
+  return PAYMENT_REF_RE.test(s) ? s : null;
+}
+
 // Step 4 — admin verification of the ACTUAL payment. Credits the
 // wallet the CREDIT amount (never the total), exactly once, inside one
 // transaction together with the ledger entry.
+//
+// Refused (no write, no credit):
+//   • a missing or malformed payment reference,
+//   • a reference already used by ANOTHER verified deposit (one bank payment
+//     must never back two wallet credits),
+//   • an admin verifying a deposit they own (separation of duties),
+//   • a terminal deposit (already verified or denied).
 export function verifyInrDeposit({ adminId, depositId, paymentRef, invoiceRef, note } = {}) {
   const db = getDb();
   const deposit = db.prepare('SELECT * FROM inr_deposits WHERE id=?').get(depositId);
   if (!deposit) return { ok: false, reason: 'not-found' };
   if (deposit.status === 'verified') return { ok: false, reason: 'already-verified' };
   if (deposit.status === 'denied') return { ok: false, reason: 'already-denied' };
+  if (Number(deposit.user_id) === Number(adminId)) return { ok: false, reason: 'self-verification-forbidden' };
+  const ref = normalizePaymentRef(paymentRef);
+  if (!ref) return { ok: false, reason: 'payment-ref-required-or-invalid' };
 
   const now = Date.now();
   const credit = Number(deposit.credit_paise); // the CREDIT — never the total
   db.exec('BEGIN');
   try {
+    // Reuse check inside the transaction: one bank payment cannot verify two deposits.
+    const reused = db.prepare(
+      `SELECT id FROM inr_deposits WHERE UPPER(payment_ref)=? AND status='verified' AND id<>?`
+    ).get(ref, deposit.id);
+    if (reused) { db.exec('ROLLBACK'); return { ok: false, reason: 'payment-ref-already-used' }; }
+
     // Conditional transition: the row flips exactly once, so the credit
     // below can never run twice (idempotent verification).
     const res = db.prepare(
       `UPDATE inr_deposits SET status='verified', payment_ref=?, invoice_ref=?,
          verified_by=?, verify_note=?, verified_at=?
        WHERE id=? AND status IN ('pending','awaiting_verification')`
-    ).run(paymentRef, invoiceRef, adminId, note, now, deposit.id);
+    ).run(ref, invoiceRef ?? null, adminId, note ?? null, now, deposit.id);
     if (res.changes === 0) { db.exec('ROLLBACK'); return { ok: false, reason: 'already-terminal' }; }
 
     const user = db.prepare('SELECT * FROM users WHERE id=?').get(deposit.user_id);
+    if (!user) { db.exec('ROLLBACK'); return { ok: false, reason: 'user-not-found' }; }
     // Atomic arithmetic on the live balance (no read-modify-write).
     db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id=?').run(credit, user.id);
     const newBalance = Number(db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(user.id).wallet_balance);
@@ -149,7 +178,7 @@ export function verifyInrDeposit({ adminId, depositId, paymentRef, invoiceRef, n
       JSON.stringify({
         method: 'inr_manual',
         invoice_ref: invoiceRef || undefined,
-        payment_ref: paymentRef || undefined,
+        payment_ref: ref,
         surcharge_paise: Number(deposit.surcharge_paise),
         total_paise: Number(deposit.total_paise),
       }), now);
@@ -161,6 +190,11 @@ export function verifyInrDeposit({ adminId, depositId, paymentRef, invoiceRef, n
     return { ok: true, inr: credit };
   } catch (e) {
     db.exec('ROLLBACK');
+    // A racing verification of another deposit with the same reference can be
+    // stopped by a unique index on payment_ref, if the opt-in migration has been
+    // applied (docs/migrations/MIGRATION_inr_payment_ref_unique.sql). Without that
+    // index, the in-transaction check above is the only guard. That is a refusal, not a crash.
+    if (isUniqueViolation(e)) return { ok: false, reason: 'payment-ref-already-used' };
     throw e;
   }
 }

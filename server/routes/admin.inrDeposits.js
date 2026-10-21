@@ -53,7 +53,22 @@ r.post('/:id/verify', ah(async (req, res) => {
     paymentRef, invoiceRef, note: reason.slice(0, 300),
   });
   if (!out.ok) {
+    // Every refused credit attempt is recorded, so repeated attempts are visible.
+    logSecurity(req.user.id, req.user.email, 'verify_inr_deposit_refused', clientIp(req),
+      `admin; refused: ${out.reason}; inr deposit #${req.params.id}`);
     if (out.reason === 'not-found') return sendErr(res, 404, 'Deposit not found.');
+    if (out.reason === 'payment-ref-required-or-invalid') {
+      return sendErr(res, 400, 'Enter the bank or UPI reference (6–35 letters, digits, - _ or /).');
+    }
+    if (out.reason === 'payment-ref-already-used') {
+      return sendErr(res, 409, 'This payment reference is already used by another verified deposit. Nothing was credited.');
+    }
+    if (out.reason === 'self-verification-forbidden') {
+      return sendErr(res, 403, 'An admin cannot verify their own deposit. Another admin must do it.');
+    }
+    if (out.reason === 'already-verified' || out.reason === 'already-terminal') {
+      return sendErr(res, 409, 'This deposit has already been verified. Nothing was credited again.');
+    }
     return sendErr(res, 400, `Cannot verify: ${out.reason}`);
   }
   // Audit trail: the actor, the client address and the stated reason

@@ -308,3 +308,20 @@ CREATE INDEX IF NOT EXISTS idx_inr_deposits_user ON inr_deposits(user_id, status
 -- table already exists without order_id, so CREATE TABLE IF NOT EXISTS is a no-op
 -- and an index here would abort startup. db.js ensureColumnsPg adds the column,
 -- then creates idx_inr_deposits_order.
+
+-- Provider payment-event log (INR gate). A NEW table: IF NOT EXISTS, no ALTER,
+-- no index on an existing table. Recording an event never credits a wallet.
+CREATE TABLE IF NOT EXISTS provider_payment_events (
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  provider      TEXT NOT NULL,
+  event_id      TEXT NOT NULL,
+  deposit_id    BIGINT REFERENCES inr_deposits(id),
+  order_id      TEXT,
+  event_status  TEXT NOT NULL,
+  amount_paise  BIGINT,
+  currency      TEXT,
+  source        TEXT NOT NULL,
+  decision      TEXT NOT NULL,
+  received_at   BIGINT NOT NULL,
+  UNIQUE (provider, event_id)
+);

@@ -312,11 +312,11 @@ await t('I12: verification is idempotent — a second verify credits nothing', a
   const before = walletBalance(clientUser.id);
   const created = await call(clientInrRoutes, { method: 'POST', url: '/', body: { rupees: 25 }, cookies: clientCookies });
   const id = created.body.deposit.id;
-  const first = await call(adminInrRoutes, { method: 'POST', url: `/${id}/verify`, body: { reason: 'verified once' }, cookies: adminCookies });
+  const first = await call(adminInrRoutes, { method: 'POST', url: `/${id}/verify`, body: { reason: 'verified once', payment_ref: 'UTR-I12-000001' }, cookies: adminCookies });
   assert.strictEqual(first.statusCode, 200);
   assert.strictEqual(walletBalance(clientUser.id), before + 2500);
-  const second = await call(adminInrRoutes, { method: 'POST', url: `/${id}/verify`, body: { reason: 'verified twice' }, cookies: adminCookies });
-  assert.strictEqual(second.statusCode, 400);
+  const second = await call(adminInrRoutes, { method: 'POST', url: `/${id}/verify`, body: { reason: 'verified twice', payment_ref: 'UTR-I12-000001' }, cookies: adminCookies });
+  assert.strictEqual(second.statusCode, 409);
   assert.strictEqual(walletBalance(clientUser.id), before + 2500, 'the wallet may be credited exactly once');
   const txs = db.prepare('SELECT COUNT(*) c FROM transactions WHERE user_id=? AND ref_id=?').get(clientUser.id, id).c;
   assert.strictEqual(txs, 1, 'exactly one ledger entry may exist');
@@ -387,11 +387,11 @@ await t('I16: concurrent verification credits the wallet exactly once; audit det
   // transaction lets exactly one of them win — the other is refused
   // and the wallet is credited exactly once.
   const [a, b] = await Promise.all([
-    call(adminInrRoutes, { method: 'POST', url: `/${id}/verify`, body: { reason: 'first verifier' }, cookies: adminCookies }),
-    call(adminInrRoutes, { method: 'POST', url: `/${id}/verify`, body: { reason: 'second verifier' }, cookies: adminCookies }),
+    call(adminInrRoutes, { method: 'POST', url: `/${id}/verify`, body: { reason: 'first verifier', payment_ref: 'UTR-I-RACE-0001' }, cookies: adminCookies }),
+    call(adminInrRoutes, { method: 'POST', url: `/${id}/verify`, body: { reason: 'second verifier', payment_ref: 'UTR-I-RACE-0001' }, cookies: adminCookies }),
   ]);
   assert.strictEqual([a, b].filter((r) => r.statusCode === 200).length, 1, 'exactly one concurrent verify may succeed');
-  assert.strictEqual([a, b].filter((r) => r.statusCode === 400).length, 1, 'the racing verify must be refused');
+  assert.strictEqual([a, b].filter((r) => r.statusCode === 409).length, 1, 'the racing verify must be refused');
   assert.strictEqual(walletBalance(clientUser.id), before + 10000, 'the wallet may be credited exactly once');
   const txs = db.prepare('SELECT COUNT(*) c FROM transactions WHERE user_id=? AND ref_id=?').get(clientUser.id, id).c;
   assert.strictEqual(txs, 1, 'exactly one ledger entry may exist');

@@ -54,11 +54,12 @@ export default function InrDeposits() {
   const verifyDeposit = async () => {
     if (!verify) return;
     if (reason.trim().length < 3) { toast('A reason is required (audit trail).', 'error'); return; }
+    if (!paymentRef.trim()) { toast('Enter the bank or UPI payment reference before verifying.', 'error'); return; }
     setBusyId(verify.id);
     try {
       const r = await post(`/api/admin/deposits/inr/${verify.id}/verify`, {
         reason: reason.trim(),
-        payment_ref: paymentRef.trim() || undefined,
+        payment_ref: paymentRef.trim(),
         invoice_ref: invoiceRef.trim() || undefined,
       });
       toast(`Verified — credited ${fmtInr(r.inr)}.`, 'success');
@@ -200,7 +201,7 @@ export default function InrDeposits() {
                   <label className="label">Reason for verification (required — audit trail)</label>
                   <textarea className="input" rows={3} value={reason} onChange={(e) => setReason(e.target.value)}
                     placeholder="e.g. UPI payment received and matched against the issued invoice; payment ref …" />
-                  <label className="label">Payment reference (optional)</label>
+                  <label className="label">Payment reference (required — one payment can verify one deposit only)</label>
                   <input className="input" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)}
                     placeholder="UPI / transaction reference" />
                   <label className="label">Invoice reference (optional)</label>

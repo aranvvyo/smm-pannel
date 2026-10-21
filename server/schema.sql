@@ -289,3 +289,22 @@ CREATE TABLE IF NOT EXISTS inr_deposits (
 CREATE INDEX IF NOT EXISTS idx_inr_deposits_user ON inr_deposits(user_id, status);
 -- The UNIQUE index on order_id is created by the db.js migration (ensureColumns),
 -- after the column is added. Creating it here would fail on existing databases.
+-- Provider payment-event log (INR gate). A NEW table: created with IF NOT
+-- EXISTS on every boot, no ALTER and no index on an existing table, so it is
+-- safe on existing databases. Idempotency: a provider event can be recorded
+-- once. Recording an event never credits a wallet; crediting remains with
+-- the transactional verify path.
+CREATE TABLE IF NOT EXISTS provider_payment_events (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider      TEXT NOT NULL,
+  event_id      TEXT NOT NULL,
+  deposit_id    INTEGER REFERENCES inr_deposits(id),
+  order_id      TEXT,
+  event_status  TEXT NOT NULL,
+  amount_paise  INTEGER,
+  currency      TEXT,
+  source        TEXT NOT NULL,
+  decision      TEXT NOT NULL,
+  received_at   INTEGER NOT NULL,
+  UNIQUE (provider, event_id)
+);
